@@ -128,7 +128,85 @@ h3 {
   min-height: 100dvh;
   display: flex;
   flex-direction: column;
-  padding-bottom: 150px;
+  /* --dock-h is measured off the real bottom dock, so the scroll end and the
+     dock always line up — a fixed guess here is where the old slit came from. */
+  padding-bottom: calc(var(--dock-h, 160px) + 10px);
+}
+
+/* Name + round + turn banner stay put while the list scrolls under them. */
+.mob-top {
+  position: sticky;
+  top: 0;
+  z-index: 25;
+  background: var(--bg);
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 6px;
+}
+
+/* One fixed block for everything pinned to the bottom: the self strip, the
+   log peek and the action bar. Children stack normally inside it, so there
+   is no seam for the initiative list to show through. */
+.bottom-dock {
+  position: fixed;
+  bottom: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(560px, 100%);
+  z-index: 20;
+  background: var(--bg);
+}
+
+/* your numbers, pinned */
+
+.you-strip {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 7px 12px;
+  background: var(--panel);
+  border: none;
+  border-top: 1px solid var(--border);
+  color: var(--text);
+  font-size: 12.5px;
+  text-align: left;
+}
+
+.you-strip .ys-vitals {
+  font-weight: 700;
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+.you-strip .ys-mods {
+  display: flex;
+  gap: 8px;
+  margin-left: auto;
+  color: var(--muted);
+  font-size: 11px;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.you-strip .ys-chev {
+  flex-shrink: 0;
+  color: var(--muted);
+}
+
+/* The unfolded block rides on top of the dock. */
+.you-sheet {
+  position: fixed;
+  bottom: var(--dock-h, 160px);
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(560px, 100%);
+  max-height: 55dvh;
+  overflow-y: auto;
+  z-index: 19;
+  background: var(--panel);
+  border-top: 1px solid var(--gold);
+  box-shadow: 0 -10px 28px rgba(0, 0, 0, 0.45);
+  padding: 12px 16px 14px;
 }
 
 /* banners + toast */
@@ -338,11 +416,7 @@ h3 {
 /* log peek + action bar */
 
 .log-peek {
-  position: fixed;
-  bottom: 76px;
-  left: 50%;
-  transform: translateX(-50%);
-  width: min(560px, 100%);
+  width: 100%;
   display: flex;
   align-items: center;
   gap: 8px;
@@ -356,7 +430,6 @@ h3 {
   color: var(--muted);
   text-align: left;
   padding: 6px 10px 6px 14px;
-  z-index: 20;
 }
 
 .log-peek .peek-entry {
@@ -551,18 +624,13 @@ h3 {
 
 
 .action-bar {
-  position: fixed;
-  bottom: 0;
-  left: 50%;
-  transform: translateX(-50%);
-  width: min(560px, 100%);
+  width: 100%;
   display: grid;
   grid-template-columns: repeat(4, 1fr);
   gap: 6px;
   padding: 10px 10px calc(10px + env(safe-area-inset-bottom));
   background: var(--bg);
   border-top: 1px solid var(--border);
-  z-index: 20;
 }
 
 .action-bar button {
@@ -574,6 +642,33 @@ h3 {
   padding: 12px 4px;
   font-size: 13px;
   font-weight: 600;
+}
+
+/* the More menu: one thumb-sized row per destination */
+
+.more-menu {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding-top: 4px;
+}
+
+.more-item {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 16px;
+  font-size: 16px;
+  font-weight: 600;
+  text-align: left;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  color: var(--text);
+}
+
+.more-item:active {
+  background: var(--panel-2);
 }
 
 /* sheets */

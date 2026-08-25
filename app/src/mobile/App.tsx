@@ -49,6 +49,7 @@ type View =
   | { id: 'hp'; mode: 'damage' | 'heal' }
   | { id: 'attack' }
   | { id: 'myAttacks' }
+  | { id: 'more' }
   | { id: 'spellbook' }
   | { id: 'log' }
   | { id: 'archive' };
@@ -62,6 +63,22 @@ export function App() {
   const [state, setState] = useState<StateMsg | null>(null);
   const [connected, setConnected] = useState(false);
   const [view, setView] = useState<View>({ id: 'home' });
+  // The bottom dock (self strip + log peek + action bar) is one fixed block;
+  // its measured height drives the page's bottom padding, so the scroll end
+  // and the dock line up exactly — no magic offsets, no slit between bars.
+  // A callback ref, not an effect: the dock mounts only once a character is
+  // claimed, and an effect keyed on view/state misses that moment.
+  const dockRO = useRef<ResizeObserver | null>(null);
+  const dockRef = (el: HTMLDivElement | null) => {
+    dockRO.current?.disconnect();
+    dockRO.current = null;
+    if (!el) return;
+    const apply = () =>
+      document.documentElement.style.setProperty('--dock-h', `${el.offsetHeight}px`);
+    apply();
+    dockRO.current = new ResizeObserver(apply);
+    dockRO.current.observe(el);
+  };
   const [toast, setToast] = useState<string | null>(null);
   const [attackMsg, setAttackMsg] = useState<AttackResultMsg | SaveResolvedMsg | null>(null);
   const [atkRollMsg, setAtkRollMsg] = useState<AttackRollResultMsg | null>(null);
@@ -188,24 +205,27 @@ export function App() {
         <ClaimScreen state={state} t={t} send={send} />
       ) : (
         <>
-          <header className="mob-header">
-            <div className="mob-title">
-              <strong>{you.name}</strong>
-              {state.combatActive && (
-                <span className="round">{t('log.round', { round: state.round })}</span>
-              )}
-            </div>
-            <button className="linkish" onClick={() => send({ type: 'release' })}>
-              {t('mob.release')}
-            </button>
-          </header>
+          {/* Name, round and the turn banner stay put while the list scrolls. */}
+          <div className="mob-top">
+            <header className="mob-header">
+              <div className="mob-title">
+                <strong>{you.name}</strong>
+                {state.combatActive && (
+                  <span className="round">{t('log.round', { round: state.round })}</span>
+                )}
+              </div>
+              <button className="linkish" onClick={() => send({ type: 'release' })}>
+                {t('mob.release')}
+              </button>
+            </header>
 
-          {state.combatActive && (
-            <div className={`turn-banner ${state.myTurn ? 'mine' : ''}`}>
-              {state.myTurn && <Icon name="swords" size={18} />}
-              {t(state.myTurn ? 'mob.yourTurn' : gatingHint ?? 'mob.notYourTurn')}
-            </div>
-          )}
+            {state.combatActive && (
+              <div className={`turn-banner ${state.myTurn ? 'mine' : ''}`}>
+                {state.myTurn && <Icon name="swords" size={18} />}
+                {t(state.myTurn ? 'mob.yourTurn' : gatingHint ?? 'mob.notYourTurn')}
+              </div>
+            )}
+          </div>
 
           {view.id === 'home' && (
             <>
@@ -218,11 +238,13 @@ export function App() {
                   lang={lang}
                   send={send}
                   onSpellbook={() => setView({ id: 'spellbook' })}
-                  onActions={() => setView({ id: 'myAttacks' })}
+                  onActions={() => setView({ id: 'more' })}
                 />
               )}
-              <LogPeek state={state} lang={lang} onOpen={() => setView({ id: 'log' })} />
-              <nav className="action-bar">
+              <div className="bottom-dock" ref={dockRef}>
+                {state.combatActive && <YouStrip state={state} t={t} lang={lang} />}
+                <LogPeek state={state} lang={lang} onOpen={() => setView({ id: 'log' })} />
+                <nav className="action-bar">
                 <button
                   disabled={!state.combatActive || (!canAct && !canSelfHp)}
                   onClick={() => setView({ id: 'hp', mode: 'damage' })}
@@ -244,13 +266,34 @@ export function App() {
                   <Icon name="swords" size={19} />
                   {t('mob.attack')}
                 </button>
-                {/* Navigation, not an action: no icon, and the ellipsis says
-                    there is more behind it. */}
-                <button className="ghost" onClick={() => setView({ id: 'myAttacks' })}>
-                  {t('mob.myAttacksMore')}
+                {/* Navigation, not an action: everything else lives behind it. */}
+                <button className="ghost" onClick={() => setView({ id: 'more' })}>
+                  {t('mob.more')}
                 </button>
-              </nav>
+                </nav>
+              </div>
             </>
+          )}
+
+          {view.id === 'more' && (
+            <Sheet title={t('mob.more')} onClose={() => setView({ id: 'home' })} t={t}>
+              {/* One entry per destination, sized for thumbs; new features
+                  (inventory, notes) get a row here instead of a new button. */}
+              <div className="more-menu">
+                <button className="more-item" onClick={() => setView({ id: 'spellbook' })}>
+                  <Icon name="book" size={22} />
+                  {t('spellbook.title')}
+                </button>
+                <button className="more-item" onClick={() => setView({ id: 'myAttacks' })}>
+                  <Icon name="swords" size={22} />
+                  {t('mob.myAttacks')}
+                </button>
+                <button className="more-item" onClick={() => setView({ id: 'archive' })}>
+                  <Icon name="archive" size={22} />
+                  {t('mob.archive')}
+                </button>
+              </div>
+            </Sheet>
           )}
 
           {view.id === 'hp' && (
@@ -303,7 +346,7 @@ export function App() {
               spellList={spellList}
               onArchive={() => setView({ id: 'archive' })}
               onSpellbook={() => setView({ id: 'spellbook' })}
-              onClose={() => setView({ id: 'home' })}
+              onClose={() => setView({ id: 'more' })}
             />
           )}
 
@@ -328,7 +371,7 @@ export function App() {
           )}
 
           {view.id === 'archive' && (
-            <Sheet title={t('mob.archive')} onClose={() => setView({ id: 'myAttacks' })} t={t}>
+            <Sheet title={t('mob.archive')} onClose={() => setView({ id: 'more' })} t={t}>
               {archiveEntry ? (
                 <>
                   <button className="sheet-back" onClick={() => setArchiveEntry(null)}>
@@ -590,6 +633,67 @@ function ClaimScreen({
   );
 }
 
+// ---- sticky self strip (during combat) ---------------------------------------
+
+/**
+ * Your numbers, one glance away while the initiative list scrolls: a slim
+ * strip pinned above the action bar. Tapping it unfolds the full block —
+ * scores, notes, spell slots — as an overlay riding on the dock.
+ */
+function YouStrip({
+  state,
+  t,
+  lang,
+}: {
+  state: StateMsg;
+  t: (k: string, p?: Record<string, string | number>) => string;
+  lang: Lang;
+}) {
+  const you = state.you!;
+  const me = state.combatants.find((c) => c.id === you.combatantId) ?? null;
+  const [open, setOpen] = useState(false);
+  const fmt = (n: number) => (n >= 0 ? `+${n}` : `${n}`);
+  return (
+    <>
+      {open && (
+        <div className="you-sheet">
+          {you.abilities && (
+            <div className="you-stats card-abilities">
+              {ABILITY_KEYS.map((k) => {
+                const score = you.abilities![k];
+                const mod = abilityMod(score);
+                return (
+                  <span key={k} className="you-stat tnum">
+                    <b>{abilityLabels(lang)[k]}</b> {score} ({fmt(mod)})
+                  </span>
+                );
+              })}
+            </div>
+          )}
+          {you.notes && <div className="you-notes card-notes">{you.notes}</div>}
+          <PhoneSlotPips slots={you.spellSlots} />
+        </div>
+      )}
+      <button className="you-strip tnum" onClick={() => setOpen((o) => !o)}>
+        <span className="ys-vitals">
+          {t('mob.hp')} {me ? `${me.currentHp}/${me.maxHp}` : you.maxHp} · {t('common.ac')}{' '}
+          {you.ac}
+        </span>
+        {you.abilities && (
+          <span className="ys-mods">
+            {ABILITY_KEYS.map((k) => (
+              <span key={k}>
+                {abilityLabels(lang)[k]} {fmt(abilityMod(you.abilities![k]))}
+              </span>
+            ))}
+          </span>
+        )}
+        <span className="ys-chev">{open ? '▾' : '▴'}</span>
+      </button>
+    </>
+  );
+}
+
 // ---- character card (home, no combat) ---------------------------------------
 
 function PhoneSlotPips({ slots }: { slots: SpellSlots | null }) {
@@ -667,12 +771,12 @@ function CharacterCard({
       {you.notes && <div className="you-notes card-notes">{you.notes}</div>}
       <PhoneSlotPips slots={you.spellSlots} />
       <div className="card-actions">
-        <button className="big" onClick={onActions}>
-          {t('mob.myAttacksMore')}
-        </button>
-        <button className="big" onClick={onSpellbook}>
+        <button className="big primary" onClick={onSpellbook}>
           <Icon name="book" size={18} />
           {t('spellbook.title')}
+        </button>
+        <button className="big" onClick={onActions}>
+          {t('mob.more')}
         </button>
         {you.spellSlots && (
           <button
