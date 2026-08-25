@@ -1,6 +1,6 @@
 {
   "name": "deck-of-many-turns",
-  "version": "3.6.0",
+  "version": "3.7.0",
   "description": "Deck of Many Turns — D&D combat for Dungeon Masters: DM window, Player View, player phones, Stream Deck",
   "main": "out/main/index.js",
   "author": "DM Tools",

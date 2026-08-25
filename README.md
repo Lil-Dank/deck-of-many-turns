@@ -5,7 +5,7 @@
 ![React](https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=black)
 ![TypeScript](https://img.shields.io/badge/TypeScript-5.6-3178C6?logo=typescript&logoColor=white)
 ![Stream Deck](https://img.shields.io/badge/Stream%20Deck-SDK%20v2-000000?logo=elgato&logoColor=white)
-![Release](https://img.shields.io/badge/release-v3.6.0-success)
+![Release](https://img.shields.io/badge/release-v3.7.0-success)
 
 ![Deck of Many Turns — initiative tracking for 5e combat, with a Player View, player phones and Stream Deck control](docs/images/social-preview.png)
 
@@ -133,7 +133,7 @@ for anyone integrating their own hardware or overlays.
 
 Grab both files from the [**latest release**](../../releases/latest):
 
-1. **App** — run `Deck of Many Turns Setup 3.6.0.exe` (NSIS installer, choose your own directory).
+1. **App** — run `Deck of Many Turns Setup 3.7.0.exe` (NSIS installer, choose your own directory).
 2. **Stream Deck plugin** — double-click `com.dmtools.dnd-combat-tracker.streamDeckPlugin`;
    the Stream Deck app installs it and registers the bundled picker profiles.
 3. Start the app. The plugin connects within a few seconds — the DM window's sidebar
@@ -755,7 +755,7 @@ npm run dev        # live-reload dev session
 npm run dev:mobile # (second terminal) rebuild the player web bundle on change
 npm run build      # compile main/preload/renderer + player web bundle to out/
 npm run unpack     # → release/win-unpacked/ — runnable, no installer
-npm run dist       # → release/Deck of Many Turns Setup 3.6.0.exe (NSIS)
+npm run dist       # → release/Deck of Many Turns Setup 3.7.0.exe (NSIS)
 ```
 
 The player web page is served as plain static files from `out/mobile` in dev and
