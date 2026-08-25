@@ -426,12 +426,36 @@ export class AppStore {
     await this.setCombat(combat);
   }
 
-  /** Long Rest: every expended slot returns. */
+  /** Long Rest: every expended slot returns, and every resource refills. */
   async longRest(pcId: string): Promise<void> {
     const pc = this.pcs.get(pcId);
-    const slots = normalizeSlots(pc?.spellSlots);
-    if (!pc || !slots) return;
-    await this.pcs.put({ ...pc, spellSlots: { ...slots, current: [...slots.max] } });
+    if (!pc) return;
+    const slots = normalizeSlots(pc.spellSlots);
+    const resources = (pc.resources ?? []).map((r) => ({ ...r, current: r.max }));
+    if (!slots && resources.length === 0) return;
+    await this.pcs.put({
+      ...pc,
+      ...(slots ? { spellSlots: { ...slots, current: [...slots.max] } } : {}),
+      resources,
+    });
+    this.notify();
+  }
+
+  /**
+   * Spend or restore one custom resource, clamped to [0, max]. One method for
+   * every surface — phone, DM prompt, Party screen steppers — so the count
+   * has a single authority.
+   */
+  async adjustResource(pcId: string, resourceId: string, delta: number): Promise<void> {
+    const pc = this.pcs.get(pcId);
+    const res = pc?.resources?.find((r) => r.id === resourceId);
+    if (!pc || !res) return;
+    const current = Math.max(0, Math.min(res.max, res.current + delta));
+    if (current === res.current) return;
+    await this.pcs.put({
+      ...pc,
+      resources: pc.resources!.map((r) => (r.id === resourceId ? { ...r, current } : r)),
+    });
     this.notify();
   }
 

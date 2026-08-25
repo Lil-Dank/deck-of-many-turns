@@ -2093,6 +2093,54 @@ select.campaign-select {
   filter: brightness(1.08);
 }
 
+/* Custom resource rows: the attack modal's spend step + Party editor. */
+.res-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 10px 0;
+}
+
+.res-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 12px;
+  background: var(--bg-panel-2);
+  border: 1px solid var(--border);
+  border-radius: 9px;
+}
+
+.res-row .res-name {
+  font-weight: 600;
+}
+
+.res-row .res-pips {
+  margin-left: auto;
+  color: var(--gold);
+  letter-spacing: 2px;
+}
+
+.pc-res-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.pc-res-row {
+  display: flex;
+  gap: 8px;
+}
+
+.pc-res-row input[type='text'] {
+  flex: 1;
+}
+
+.pc-res-row .pc-res-max {
+  width: 80px;
+}
+
 /* The collapse control: a full-width bar at the bottom of the sidebar. */
 .log-panel-toggle {
   width: 100%;

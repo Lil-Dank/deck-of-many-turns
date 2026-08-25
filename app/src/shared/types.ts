@@ -122,6 +122,19 @@ export interface MonsterAction {
   } | null;
 }
 
+/**
+ * A custom point pool on a PC — Ki, sorcery points, Channel Divinity, any
+ * homebrew counter. Deliberately just a named number: no rules engine, the
+ * table decides what it means. DM (Party screen) and player (phone) both
+ * edit; long rest refills to max.
+ */
+export interface PcResource {
+  id: string;
+  name: string;
+  max: number;
+  current: number;
+}
+
 export interface PC {
   id: string;
   name: string;
@@ -139,6 +152,8 @@ export interface PC {
   abilities?: AbilityScores | null;
   /** Free-text notes (class/level, passive perception, whatever the table wants). */
   notes?: string;
+  /** Custom point pools (Ki, sorcery points, homebrew) — see PcResource. */
+  resources?: PcResource[];
   /**
    * Spell slots, copied off the character sheet — no class/level rules on
    * purpose. Lives only on the PC (never snapshotted into combatants), so

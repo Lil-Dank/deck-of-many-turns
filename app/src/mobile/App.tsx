@@ -20,7 +20,7 @@ import {
   rollMathSegments,
 } from '../shared/logText';
 import type { LogEntry, MonsterAction, SpellSlots } from '../shared/types';
-import { ABILITY_KEYS, abilityMod } from '../shared/types';
+import { ABILITY_KEYS, abilityMod, type PcResource } from '../shared/types';
 import { formToAction, actionToForm, emptyAction, ABILITIES, type ActionForm } from '../renderer/src/actionForm';
 import { spellToAction, spellActionName, spellActionText } from '../shared/spellAction';
 import type {
@@ -49,6 +49,9 @@ type View =
   | { id: 'hp'; mode: 'damage' | 'heal' }
   | { id: 'attack' }
   | { id: 'myAttacks' }
+  | { id: 'more' }
+  | { id: 'resources' }
+  | { id: 'spend' }
   | { id: 'spellbook' }
   | { id: 'log' }
   | { id: 'archive' };
@@ -62,6 +65,22 @@ export function App() {
   const [state, setState] = useState<StateMsg | null>(null);
   const [connected, setConnected] = useState(false);
   const [view, setView] = useState<View>({ id: 'home' });
+  // The bottom dock (self strip + log peek + action bar) is one fixed block;
+  // its measured height drives the page's bottom padding, so the scroll end
+  // and the dock line up exactly — no magic offsets, no slit between bars.
+  // A callback ref, not an effect: the dock mounts only once a character is
+  // claimed, and an effect keyed on view/state misses that moment.
+  const dockRO = useRef<ResizeObserver | null>(null);
+  const dockRef = (el: HTMLDivElement | null) => {
+    dockRO.current?.disconnect();
+    dockRO.current = null;
+    if (!el) return;
+    const apply = () =>
+      document.documentElement.style.setProperty('--dock-h', `${el.offsetHeight}px`);
+    apply();
+    dockRO.current = new ResizeObserver(apply);
+    dockRO.current.observe(el);
+  };
   const [toast, setToast] = useState<string | null>(null);
   const [attackMsg, setAttackMsg] = useState<AttackResultMsg | SaveResolvedMsg | null>(null);
   const [atkRollMsg, setAtkRollMsg] = useState<AttackRollResultMsg | null>(null);
@@ -188,24 +207,27 @@ export function App() {
         <ClaimScreen state={state} t={t} send={send} />
       ) : (
         <>
-          <header className="mob-header">
-            <div className="mob-title">
-              <strong>{you.name}</strong>
-              {state.combatActive && (
-                <span className="round">{t('log.round', { round: state.round })}</span>
-              )}
-            </div>
-            <button className="linkish" onClick={() => send({ type: 'release' })}>
-              {t('mob.release')}
-            </button>
-          </header>
+          {/* Name, round and the turn banner stay put while the list scrolls. */}
+          <div className="mob-top">
+            <header className="mob-header">
+              <div className="mob-title">
+                <strong>{you.name}</strong>
+                {state.combatActive && (
+                  <span className="round">{t('log.round', { round: state.round })}</span>
+                )}
+              </div>
+              <button className="linkish" onClick={() => send({ type: 'release' })}>
+                {t('mob.release')}
+              </button>
+            </header>
 
-          {state.combatActive && (
-            <div className={`turn-banner ${state.myTurn ? 'mine' : ''}`}>
-              {state.myTurn && <Icon name="swords" size={18} />}
-              {t(state.myTurn ? 'mob.yourTurn' : gatingHint ?? 'mob.notYourTurn')}
-            </div>
-          )}
+            {state.combatActive && (
+              <div className={`turn-banner ${state.myTurn ? 'mine' : ''}`}>
+                {state.myTurn && <Icon name="swords" size={18} />}
+                {t(state.myTurn ? 'mob.yourTurn' : gatingHint ?? 'mob.notYourTurn')}
+              </div>
+            )}
+          </div>
 
           {view.id === 'home' && (
             <>
@@ -218,11 +240,13 @@ export function App() {
                   lang={lang}
                   send={send}
                   onSpellbook={() => setView({ id: 'spellbook' })}
-                  onActions={() => setView({ id: 'myAttacks' })}
+                  onActions={() => setView({ id: 'more' })}
                 />
               )}
-              <LogPeek state={state} lang={lang} onOpen={() => setView({ id: 'log' })} />
-              <nav className="action-bar">
+              <div className="bottom-dock" ref={dockRef}>
+                {state.combatActive && <YouStrip state={state} t={t} lang={lang} send={send} />}
+                <LogPeek state={state} lang={lang} onOpen={() => setView({ id: 'log' })} />
+                <nav className="action-bar">
                 <button
                   disabled={!state.combatActive || (!canAct && !canSelfHp)}
                   onClick={() => setView({ id: 'hp', mode: 'damage' })}
@@ -244,13 +268,58 @@ export function App() {
                   <Icon name="swords" size={19} />
                   {t('mob.attack')}
                 </button>
-                {/* Navigation, not an action: no icon, and the ellipsis says
-                    there is more behind it. */}
-                <button className="ghost" onClick={() => setView({ id: 'myAttacks' })}>
-                  {t('mob.myAttacksMore')}
+                {/* Navigation, not an action: everything else lives behind it. */}
+                <button className="ghost" onClick={() => setView({ id: 'more' })}>
+                  {t('mob.more')}
                 </button>
-              </nav>
+                </nav>
+              </div>
             </>
+          )}
+
+          {view.id === 'more' && (
+            <Sheet title={t('mob.more')} onClose={() => setView({ id: 'home' })} t={t}>
+              {/* One entry per destination, sized for thumbs; new features
+                  (inventory, notes) get a row here instead of a new button. */}
+              <div className="more-menu">
+                <button className="more-item" onClick={() => setView({ id: 'spellbook' })}>
+                  <Icon name="book" size={22} />
+                  {t('spellbook.title')}
+                </button>
+                <button className="more-item" onClick={() => setView({ id: 'myAttacks' })}>
+                  <Icon name="swords" size={22} />
+                  {t('mob.myAttacks')}
+                </button>
+                <button className="more-item" onClick={() => setView({ id: 'archive' })}>
+                  <Icon name="archive" size={22} />
+                  {t('mob.archive')}
+                </button>
+                <button className="more-item" onClick={() => setView({ id: 'resources' })}>
+                  <Icon name="equalizer" size={22} />
+                  {t('res.title')}
+                </button>
+              </div>
+            </Sheet>
+          )}
+
+          {view.id === 'resources' && (
+            <ResourceEditor
+              key={you.pcId}
+              state={state}
+              t={t}
+              send={send}
+              onClose={() => setView({ id: 'more' })}
+            />
+          )}
+
+          {view.id === 'spend' && (
+            <Sheet title={t('res.spendTitle')} onClose={() => setView({ id: 'home' })} t={t} noBack>
+              <p className="muted conc-info">{t('res.spendInfo')}</p>
+              <ResourceRows resources={you.resources} send={send} />
+              <button className="big primary" onClick={() => setView({ id: 'home' })}>
+                {t('res.done')}
+              </button>
+            </Sheet>
           )}
 
           {view.id === 'hp' && (
@@ -284,13 +353,20 @@ export function App() {
               waiting={waitingSave}
               clearResult={() => setAttackMsg(null)}
               onClose={() => {
+                // Anything actually rolled? Then offer the resource prompt on
+                // the way out — backing out of an unstarted flow never asks.
+                const acted = !!(attackMsg || atkRollMsg || dmgMsg || healMsg || savePendingMsg);
                 setAttackMsg(null);
                 setAtkRollMsg(null);
                 setDmgMsg(null);
                 setSavePendingMsg(null);
                 setHealMsg(null);
                 setWaitingSave(false);
-                setView({ id: 'home' });
+                setView(
+                  acted && (state.you?.resources.length ?? 0) > 0
+                    ? { id: 'spend' }
+                    : { id: 'home' },
+                );
               }}
             />
           )}
@@ -303,7 +379,7 @@ export function App() {
               spellList={spellList}
               onArchive={() => setView({ id: 'archive' })}
               onSpellbook={() => setView({ id: 'spellbook' })}
-              onClose={() => setView({ id: 'home' })}
+              onClose={() => setView({ id: 'more' })}
             />
           )}
 
@@ -328,7 +404,7 @@ export function App() {
           )}
 
           {view.id === 'archive' && (
-            <Sheet title={t('mob.archive')} onClose={() => setView({ id: 'myAttacks' })} t={t}>
+            <Sheet title={t('mob.archive')} onClose={() => setView({ id: 'more' })} t={t}>
               {archiveEntry ? (
                 <>
                   <button className="sheet-back" onClick={() => setArchiveEntry(null)}>
@@ -590,6 +666,222 @@ function ClaimScreen({
   );
 }
 
+// ---- custom resources ---------------------------------------------------------
+
+/** Dots when small enough to read as dots, digits otherwise. */
+function resPips(r: PcResource): string {
+  return r.max <= 6 ? '●'.repeat(r.current) + '○'.repeat(r.max - r.current) : `${r.current}/${r.max}`;
+}
+
+/**
+ * One row per pool with −/+ steppers, shared by the unfolded strip, the idle
+ * card and the after-action prompt. Adjustments go through the server, so
+ * every surface — including the DM's Party screen — sees the same count.
+ */
+function ResourceRows({
+  resources,
+  send,
+}: {
+  resources: PcResource[];
+  send: (m: Record<string, unknown>) => void;
+}) {
+  if (resources.length === 0) return null;
+  return (
+    <div className="res-rows">
+      {resources.map((r) => (
+        <div key={r.id} className="res-row">
+          <span className="res-name">{r.name}</span>
+          <span className="res-pips tnum">{resPips(r)}</span>
+          <button
+            className="res-step"
+            disabled={r.current <= 0}
+            onClick={() => send({ type: 'resourceAdjust', resourceId: r.id, delta: -1 })}
+          >
+            −
+          </button>
+          <button
+            className="res-step"
+            disabled={r.current >= r.max}
+            onClick={() => send({ type: 'resourceAdjust', resourceId: r.id, delta: 1 })}
+          >
+            +
+          </button>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/**
+ * Player-side pool editor (name + max). A local draft, so incoming state
+ * pushes never clobber typing; every save/delete goes to the server and the
+ * DM's Party screen sees it live. Current counts are adjusted elsewhere —
+ * this screen shapes the pools, it doesn't spend them.
+ */
+function ResourceEditor({
+  state,
+  t,
+  send,
+  onClose,
+}: {
+  state: StateMsg;
+  t: (k: string, p?: Record<string, string | number>) => string;
+  send: (m: Record<string, unknown>) => void;
+  onClose: () => void;
+}) {
+  const you = state.you!;
+  const [drafts, setDrafts] = useState(() =>
+    you.resources.map((r) => ({ id: r.id, name: r.name, max: String(r.max) })),
+  );
+  const [newName, setNewName] = useState('');
+  const [newMax, setNewMax] = useState('1');
+
+  const saveRow = (d: { id: string; name: string; max: string }) => {
+    if (!d.name.trim()) return;
+    send({ type: 'resourceSave', resourceId: d.id, name: d.name, max: parseInt(d.max, 10) || 1 });
+  };
+
+  return (
+    <Sheet title={t('res.title')} onClose={onClose} t={t}>
+      <p className="muted conc-info">{t('res.editorInfo')}</p>
+      <div className="res-editor">
+        {drafts.map((d, i) => (
+          <div key={d.id} className="res-edit-row">
+            <input
+              type="text"
+              value={d.name}
+              placeholder={t('common.name')}
+              onChange={(e) =>
+                setDrafts((ds) => ds.map((x, j) => (j === i ? { ...x, name: e.target.value } : x)))
+              }
+              onBlur={() => saveRow(drafts[i])}
+            />
+            <input
+              type="number"
+              inputMode="numeric"
+              value={d.max}
+              onChange={(e) =>
+                setDrafts((ds) => ds.map((x, j) => (j === i ? { ...x, max: e.target.value } : x)))
+              }
+              onBlur={() => saveRow(drafts[i])}
+            />
+            <button
+              className="res-del"
+              onClick={() => {
+                setDrafts((ds) => ds.filter((_, j) => j !== i));
+                send({ type: 'resourceDelete', resourceId: d.id });
+              }}
+            >
+              ✕
+            </button>
+          </div>
+        ))}
+        <div className="res-edit-row res-new">
+          <input
+            type="text"
+            value={newName}
+            placeholder={t('common.name')}
+            onChange={(e) => setNewName(e.target.value)}
+          />
+          <input
+            type="number"
+            inputMode="numeric"
+            value={newMax}
+            onChange={(e) => setNewMax(e.target.value)}
+          />
+          <button
+            className="res-add"
+            disabled={!newName.trim()}
+            onClick={() => {
+              const name = newName.trim();
+              const max = parseInt(newMax, 10) || 1;
+              send({ type: 'resourceSave', name, max });
+              setDrafts((ds) => [...ds, { id: `pending-${Date.now()}`, name, max: String(max) }]);
+              setNewName('');
+              setNewMax('1');
+            }}
+          >
+            + {t('res.add')}
+          </button>
+        </div>
+      </div>
+    </Sheet>
+  );
+}
+
+// ---- sticky self strip (during combat) ---------------------------------------
+
+/**
+ * Your numbers, one glance away while the initiative list scrolls: a slim
+ * strip pinned above the action bar. Tapping it unfolds the full block —
+ * scores, notes, spell slots — as an overlay riding on the dock.
+ */
+function YouStrip({
+  state,
+  t,
+  lang,
+  send,
+}: {
+  state: StateMsg;
+  t: (k: string, p?: Record<string, string | number>) => string;
+  lang: Lang;
+  send: (m: Record<string, unknown>) => void;
+}) {
+  const you = state.you!;
+  const me = state.combatants.find((c) => c.id === you.combatantId) ?? null;
+  const [open, setOpen] = useState(false);
+  const fmt = (n: number) => (n >= 0 ? `+${n}` : `${n}`);
+  return (
+    <>
+      {open && (
+        <div className="you-sheet">
+          {you.abilities && (
+            <div className="you-stats card-abilities">
+              {ABILITY_KEYS.map((k) => {
+                const score = you.abilities![k];
+                const mod = abilityMod(score);
+                return (
+                  <span key={k} className="you-stat tnum">
+                    <b>{abilityLabels(lang)[k]}</b> {score} ({fmt(mod)})
+                  </span>
+                );
+              })}
+            </div>
+          )}
+          {you.notes && <div className="you-notes card-notes">{you.notes}</div>}
+          <PhoneSlotPips slots={you.spellSlots} />
+          <ResourceRows resources={you.resources} send={send} />
+        </div>
+      )}
+      <button className="you-strip tnum" onClick={() => setOpen((o) => !o)}>
+        <span className="ys-vitals">
+          {t('mob.hp')} {me ? `${me.currentHp}/${me.maxHp}` : you.maxHp} · {t('common.ac')}{' '}
+          {you.ac}
+        </span>
+        {you.abilities && (
+          <span className="ys-mods">
+            {ABILITY_KEYS.map((k) => (
+              <span key={k}>
+                {abilityLabels(lang)[k]} {fmt(abilityMod(you.abilities![k]))}
+              </span>
+            ))}
+          </span>
+        )}
+        <span className="ys-chev">{open ? '▾' : '▴'}</span>
+      </button>
+      {you.resources.length > 0 && (
+        <button className="ys-res tnum" onClick={() => setOpen(true)}>
+          {you.resources.map((r) => (
+            <span key={r.id} className="ys-chip">
+              {r.name} {resPips(r)}
+            </span>
+          ))}
+        </button>
+      )}
+    </>
+  );
+}
+
 // ---- character card (home, no combat) ---------------------------------------
 
 function PhoneSlotPips({ slots }: { slots: SpellSlots | null }) {
@@ -666,13 +958,14 @@ function CharacterCard({
       )}
       {you.notes && <div className="you-notes card-notes">{you.notes}</div>}
       <PhoneSlotPips slots={you.spellSlots} />
+      <ResourceRows resources={you.resources} send={send} />
       <div className="card-actions">
-        <button className="big" onClick={onActions}>
-          {t('mob.myAttacksMore')}
-        </button>
-        <button className="big" onClick={onSpellbook}>
+        <button className="big primary" onClick={onSpellbook}>
           <Icon name="book" size={18} />
           {t('spellbook.title')}
+        </button>
+        <button className="big" onClick={onActions}>
+          {t('mob.more')}
         </button>
         {you.spellSlots && (
           <button
@@ -793,6 +1086,18 @@ function InitiativeList({
           className={`init-row ${c.type} ${c.isCurrentTurn ? 'current' : ''} ${
             c.id === state.you?.combatantId ? 'me' : ''
           } ${c.isDowned ? 'downed' : ''}`}
+          // Bloodied rows redden progressively, same cue as the Player View.
+          // An image, not a background, so the row's own base colour stays.
+          style={
+            c.bloodSeverity !== undefined
+              ? {
+                  backgroundImage: `linear-gradient(90deg, rgba(190, 36, 36, ${(
+                    0.16 +
+                    c.bloodSeverity * 0.3
+                  ).toFixed(3)}), rgba(190, 36, 36, ${(0.05 + c.bloodSeverity * 0.14).toFixed(3)}))`,
+                }
+              : undefined
+          }
         >
           <div className="init-main">
             <span className="init-name">
@@ -828,19 +1133,8 @@ function InitiativeList({
               )}
             </div>
           )}
-          {c.id === state.you?.combatantId && state.you.abilities && (
-            <div className="you-stats">
-              {ABILITY_KEYS.map((k) => {
-                const score = state.you!.abilities![k];
-                const mod = abilityMod(score);
-                return (
-                  <span key={k} className="you-stat tnum">
-                    <b>{abilityLabels(lang)[k]}</b> {score} ({mod >= 0 ? `+${mod}` : mod})
-                  </span>
-                );
-              })}
-            </div>
-          )}
+          {/* Own ability scores used to live here; the sticky strip carries
+              them now, so the list row stays lean. */}
           {c.id === state.you?.combatantId && state.you.notes && (
             <div className="you-notes">{state.you.notes}</div>
           )}

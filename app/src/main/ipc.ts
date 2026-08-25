@@ -54,6 +54,9 @@ export function registerIpc(): void {
   ipcMain.handle('pc:castSpell', (_e, { pcId, spellName, slotLevel, concentration }) =>
     store.castSpell(pcId, spellName, slotLevel, undefined, concentration ?? null),
   );
+  ipcMain.handle('pc:adjustResource', (_e, { pcId, resourceId, delta }) =>
+    store.adjustResource(pcId, resourceId, delta),
+  );
   ipcMain.handle('pc:longRest', (_e, pcId) => store.longRest(pcId));
   ipcMain.handle('combat:setConcentration', (_e, { combatantId, value }) =>
     store.setConcentration(combatantId, value ?? null),

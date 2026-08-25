@@ -1,4 +1,5 @@
 import type {
+  PcResource,
   AbilityScores,
   Condition,
   DamageInstance,
@@ -31,6 +32,12 @@ export interface WireCombatant {
   concentration?: { name: string; deName?: string | null } | null;
   /** Monsters only — HP/AC never cross the wire for them. */
   isBloodied?: boolean;
+  /**
+   * How deep below half HP a bloodied combatant is, 0..1. Safe to send for
+   * monsters too: the Player View is the players' own screen and already
+   * shows exactly this gradient, so nothing new is disclosed.
+   */
+  bloodSeverity?: number;
   /** PCs only. */
   currentHp?: number;
   maxHp?: number;
@@ -49,6 +56,8 @@ export interface WireYou {
   notes: string;
   attacks: MonsterAction[];
   spellSlots: SpellSlots | null;
+  /** Custom point pools (Ki, sorcery points, homebrew) — player-editable. */
+  resources: PcResource[];
   combatantId: string | null;
 }
 

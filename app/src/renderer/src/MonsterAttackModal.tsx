@@ -15,7 +15,7 @@ import type { SaveRequest } from '../../main/saveRequests';
  * (half damage, rounded down) → apply.
  */
 
-type Step = 'attack' | 'slot' | 'target' | 'roll' | 'saves';
+type Step = 'attack' | 'slot' | 'target' | 'roll' | 'saves' | 'spend';
 
 // Spell snapshots are always offered (incl. healing and utility casts, so the
 // DM can cast for a phone-less player); otherwise attack rolls and damaging
@@ -290,6 +290,12 @@ export function MonsterAttackModal({
       void api.kenkuAttackEvent({ sourceId: attacker.sourceId, attackId: attack.id, phase: 'damageApplied' });
     }
     if (saveReq) void api.closeSaveRequest(saveReq.id);
+    // A PC attacker with custom pools gets one last screen: did that cost a
+    // resource? Skippable — Done is the only required press.
+    if (pcRecord && (pcRecord.resources?.length ?? 0) > 0) {
+      setStep('spend');
+      return;
+    }
     onClose();
   };
 
@@ -546,6 +552,44 @@ export function MonsterAttackModal({
                       : t('attack.apply', { total: dmgRoll.total })}
                 </button>
               )}
+            </div>
+          </>
+        )}
+
+        {step === 'spend' && pcRecord && (
+          <>
+            <h3>{t('res.spendTitle')}</h3>
+            <p className="muted">{t('res.spendInfo')}</p>
+            <div className="res-rows">
+              {(state.pcs.find((p) => p.id === pcRecord.id)?.resources ?? []).map((r) => (
+                <div key={r.id} className="res-row">
+                  <span className="res-name">{r.name}</span>
+                  <span className="res-pips tnum">
+                    {r.max <= 6
+                      ? '●'.repeat(r.current) + '○'.repeat(r.max - r.current)
+                      : `${r.current}/${r.max}`}
+                  </span>
+                  <button
+                    className="btn small"
+                    disabled={r.current <= 0}
+                    onClick={() => void api.adjustResource(pcRecord.id, r.id, -1)}
+                  >
+                    −
+                  </button>
+                  <button
+                    className="btn small"
+                    disabled={r.current >= r.max}
+                    onClick={() => void api.adjustResource(pcRecord.id, r.id, 1)}
+                  >
+                    +
+                  </button>
+                </div>
+              ))}
+            </div>
+            <div className="modal-actions">
+              <button className="btn primary" onClick={onClose}>
+                {t('res.done')}
+              </button>
             </div>
           </>
         )}

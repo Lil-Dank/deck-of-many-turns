@@ -128,7 +128,99 @@ h3 {
   min-height: 100dvh;
   display: flex;
   flex-direction: column;
-  padding-bottom: 150px;
+  /* --dock-h is measured off the real bottom dock, so the scroll end and the
+     dock always line up — a fixed guess here is where the old slit came from. */
+  padding-bottom: calc(var(--dock-h, 160px) + 10px);
+}
+
+/* Name + round + turn banner stay put while the list scrolls under them. */
+.mob-top {
+  position: sticky;
+  top: 0;
+  z-index: 25;
+  background: var(--bg);
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 6px;
+}
+
+/* One fixed block for everything pinned to the bottom: the self strip, the
+   log peek and the action bar. Children stack normally inside it, so there
+   is no seam for the initiative list to show through. */
+.bottom-dock {
+  position: fixed;
+  bottom: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(560px, 100%);
+  z-index: 20;
+  background: var(--bg);
+}
+
+/* Mobile browsers misplace fixed-bottom elements while the URL bar is
+   animating in or out, opening a gap under the dock that the page shows
+   through. Bleed the dock's own background well past its bottom edge, so
+   whatever the browser exposes down there is dock, not initiative list. */
+.bottom-dock::after {
+  content: '';
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  height: 40vh;
+  background: var(--bg);
+}
+
+/* your numbers, pinned */
+
+.you-strip {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 7px 12px;
+  background: var(--panel);
+  border: none;
+  border-top: 1px solid var(--border);
+  color: var(--text);
+  font-size: 12.5px;
+  text-align: left;
+}
+
+.you-strip .ys-vitals {
+  font-weight: 700;
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+.you-strip .ys-mods {
+  display: flex;
+  gap: 8px;
+  margin-left: auto;
+  color: var(--muted);
+  font-size: 11px;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.you-strip .ys-chev {
+  flex-shrink: 0;
+  color: var(--muted);
+}
+
+/* The unfolded block rides on top of the dock. */
+.you-sheet {
+  position: fixed;
+  bottom: var(--dock-h, 160px);
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(560px, 100%);
+  max-height: 55dvh;
+  overflow-y: auto;
+  z-index: 19;
+  background: var(--panel);
+  border-top: 1px solid var(--gold);
+  box-shadow: 0 -10px 28px rgba(0, 0, 0, 0.45);
+  padding: 12px 16px 14px;
 }
 
 /* banners + toast */
@@ -338,11 +430,7 @@ h3 {
 /* log peek + action bar */
 
 .log-peek {
-  position: fixed;
-  bottom: 76px;
-  left: 50%;
-  transform: translateX(-50%);
-  width: min(560px, 100%);
+  width: 100%;
   display: flex;
   align-items: center;
   gap: 8px;
@@ -356,7 +444,6 @@ h3 {
   color: var(--muted);
   text-align: left;
   padding: 6px 10px 6px 14px;
-  z-index: 20;
 }
 
 .log-peek .peek-entry {
@@ -551,18 +638,13 @@ h3 {
 
 
 .action-bar {
-  position: fixed;
-  bottom: 0;
-  left: 50%;
-  transform: translateX(-50%);
-  width: min(560px, 100%);
+  width: 100%;
   display: grid;
   grid-template-columns: repeat(4, 1fr);
   gap: 6px;
   padding: 10px 10px calc(10px + env(safe-area-inset-bottom));
   background: var(--bg);
   border-top: 1px solid var(--border);
-  z-index: 20;
 }
 
 .action-bar button {
@@ -574,6 +656,157 @@ h3 {
   padding: 12px 4px;
   font-size: 13px;
   font-weight: 600;
+}
+
+/* custom resources */
+
+.res-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.res-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+
+.res-row .res-name {
+  font-weight: 600;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.res-row .res-pips {
+  margin-left: auto;
+  color: var(--gold);
+  letter-spacing: 2px;
+  white-space: nowrap;
+}
+
+.res-step {
+  width: 40px;
+  height: 36px;
+  font-size: 18px;
+  font-weight: 700;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--panel);
+  color: var(--text);
+}
+
+.res-step:disabled {
+  opacity: 0.35;
+}
+
+/* strip chip line */
+
+.ys-res {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 10px;
+  width: 100%;
+  padding: 5px 12px 7px;
+  background: var(--panel);
+  border: none;
+  border-top: 1px solid var(--border);
+  color: var(--muted);
+  font-size: 11.5px;
+  text-align: left;
+}
+
+.ys-chip {
+  white-space: nowrap;
+}
+
+.ys-chip:not(:last-child)::after {
+  content: '·';
+  margin-left: 10px;
+  opacity: 0.5;
+}
+
+/* editor */
+
+.res-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.res-edit-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.res-edit-row input[type='text'] {
+  flex: 1;
+  min-width: 0;
+}
+
+.res-edit-row input[type='number'] {
+  width: 72px;
+}
+
+.res-del {
+  flex-shrink: 0;
+  width: 40px;
+  height: 40px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--panel);
+  color: var(--bad, #e05555);
+  font-size: 15px;
+}
+
+.res-add {
+  flex-shrink: 0;
+  padding: 0 14px;
+  height: 40px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--accent);
+  color: var(--on-accent, #fff);
+  font-weight: 600;
+}
+
+.res-add:disabled {
+  opacity: 0.4;
+}
+
+/* the More menu: one thumb-sized row per destination */
+
+.more-menu {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding-top: 4px;
+}
+
+.more-item {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 16px;
+  font-size: 16px;
+  font-weight: 600;
+  text-align: left;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  color: var(--text);
+}
+
+.more-item:active {
+  background: var(--panel-2);
 }
 
 /* sheets */
