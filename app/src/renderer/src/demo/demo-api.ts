@@ -1624,6 +1624,10 @@ export function createDemoApi(): Api {
             conditions: c.conditions,
             concentration: c.concentration ?? null,
             isBloodied: c.type === 'monster' ? c.currentHp < c.maxHp * 0.5 : undefined,
+            bloodSeverity:
+              !c.isDowned && c.currentHp < c.maxHp / 2
+                ? Math.round(Math.min(1, (c.maxHp / 2 - c.currentHp) / (c.maxHp / 2)) * 100) / 100
+                : undefined,
           };
           if (c.type !== 'pc') return base;
           const pcExtra = { currentHp: c.currentHp, maxHp: c.maxHp };

@@ -1086,6 +1086,18 @@ function InitiativeList({
           className={`init-row ${c.type} ${c.isCurrentTurn ? 'current' : ''} ${
             c.id === state.you?.combatantId ? 'me' : ''
           } ${c.isDowned ? 'downed' : ''}`}
+          // Bloodied rows redden progressively, same cue as the Player View.
+          // An image, not a background, so the row's own base colour stays.
+          style={
+            c.bloodSeverity !== undefined
+              ? {
+                  backgroundImage: `linear-gradient(90deg, rgba(190, 36, 36, ${(
+                    0.16 +
+                    c.bloodSeverity * 0.3
+                  ).toFixed(3)}), rgba(190, 36, 36, ${(0.05 + c.bloodSeverity * 0.14).toFixed(3)}))`,
+                }
+              : undefined
+          }
         >
           <div className="init-main">
             <span className="init-name">

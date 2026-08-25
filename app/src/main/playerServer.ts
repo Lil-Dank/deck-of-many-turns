@@ -294,6 +294,12 @@ function playerStateMessage(state: AppState, info: SocketInfo): string {
           conditions: c.conditions,
           concentration: c.concentration ?? null,
           isBloodied: c.type === 'monster' ? isBloodied(c) : undefined,
+          // 0..1 below half HP, quantized — drives the reddening row. The
+          // Player View already shows this exact gradient to the table.
+          bloodSeverity:
+            !c.isDowned && c.currentHp < c.maxHp / 2
+              ? Math.round(Math.min(1, (c.maxHp / 2 - c.currentHp) / (c.maxHp / 2)) * 100) / 100
+              : undefined,
         };
         // Player-View disclosure: monster HP/AC never leave the app.
         if (c.type !== 'pc') return base;
