@@ -23,6 +23,11 @@ to its GitHub release, where the installer and the packed plugin are attached.
   combat log, which the DM or the character who owes it can throw later, ignore,
   or delete. Only those two see it.
 
+- **The combat log opens at the present.** Entering the Combat screen mid-fight
+  starts the log at the newest entry instead of round one, and scrolling up to
+  read history shows a *Jump to present* button — while it is up, new entries no
+  longer yank the view down.
+
 ### Fixed
 
 - **A concentration check rolled on the phone now tumbles like every other

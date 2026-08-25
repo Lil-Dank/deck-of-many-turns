@@ -22,15 +22,43 @@ export function CombatLogPanel({ log, combatants }: { log: LogEntry[]; combatant
     () => localStorage.getItem(COLLAPSE_KEY) === '1',
   );
   const [editing, setEditing] = useState(false);
+  /** Whether the view is reading the present (the newest entries). */
+  const [atBottom, setAtBottom] = useState(true);
+  const bodyRef = useRef<HTMLDivElement>(null);
   const endRef = useRef<HTMLDivElement>(null);
   const prevLen = useRef(log.length);
 
+  // A little slack, so a card's own padding doesn't count as "scrolled up".
+  const nearBottom = (el: HTMLElement) =>
+    el.scrollHeight - el.scrollTop - el.clientHeight < 48;
+
+  // Entering the screen (or expanding the panel) starts at the present, not
+  // round one: the newest entry is what a running fight is about.
   useEffect(() => {
-    // Follow new entries only — edits in place must not yank the view down.
+    if (collapsed) return;
+    const el = bodyRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
+    setAtBottom(true);
+  }, [collapsed]);
+
+  useEffect(() => {
+    // Follow new entries only — edits in place must not yank the view down,
+    // and neither must a new entry while the DM is reading history: the
+    // jump-to-present pill is the way back, not a rug-pull.
     const grew = log.length > prevLen.current;
     prevLen.current = log.length;
-    if (!collapsed && !editing && grew) endRef.current?.scrollIntoView({ block: 'nearest' });
-  }, [log.length, collapsed, editing]);
+    if (!collapsed && !editing && grew && atBottom) {
+      endRef.current?.scrollIntoView({ block: 'nearest' });
+    }
+  }, [log.length, collapsed, editing, atBottom]);
+
+  const jumpToPresent = () => {
+    // Instant, not smooth: a smooth scroll runs on animation frames, which a
+    // hidden/backgrounded window never grants, leaving the button dead there.
+    const el = bodyRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
+    setAtBottom(true);
+  };
 
   const toggle = () => {
     setCollapsed((c) => {
@@ -55,7 +83,11 @@ export function CombatLogPanel({ log, combatants }: { log: LogEntry[]; combatant
       <header className="log-panel-header">
         <h3>📜 {t('logPanel.title')}</h3>
       </header>
-      <div className="log-panel-body">
+      <div
+        className="log-panel-body"
+        ref={bodyRef}
+        onScroll={(e) => setAtBottom(nearBottom(e.currentTarget))}
+      >
         {log.length === 0 && <p className="muted">{t('logPanel.empty')}</p>}
         <LogCards
           log={log}
@@ -83,6 +115,11 @@ export function CombatLogPanel({ log, combatants }: { log: LogEntry[]; combatant
         />
         <div ref={endRef} />
       </div>
+      {!atBottom && (
+        <button className="log-jump-now" onClick={jumpToPresent}>
+          ↓ {t('logPanel.jumpToNow')}
+        </button>
+      )}
       <button className="log-panel-toggle" onClick={toggle} title={t('logPanel.collapse')}>
         {t('logPanel.collapse')} »
       </button>
