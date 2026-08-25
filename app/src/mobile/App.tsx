@@ -1121,19 +1121,8 @@ function InitiativeList({
               )}
             </div>
           )}
-          {c.id === state.you?.combatantId && state.you.abilities && (
-            <div className="you-stats">
-              {ABILITY_KEYS.map((k) => {
-                const score = state.you!.abilities![k];
-                const mod = abilityMod(score);
-                return (
-                  <span key={k} className="you-stat tnum">
-                    <b>{abilityLabels(lang)[k]}</b> {score} ({mod >= 0 ? `+${mod}` : mod})
-                  </span>
-                );
-              })}
-            </div>
-          )}
+          {/* Own ability scores used to live here; the sticky strip carries
+              them now, so the list row stays lean. */}
           {c.id === state.you?.combatantId && state.you.notes && (
             <div className="you-notes">{state.you.notes}</div>
           )}

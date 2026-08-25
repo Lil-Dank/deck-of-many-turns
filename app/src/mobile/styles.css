@@ -156,6 +156,20 @@ h3 {
   background: var(--bg);
 }
 
+/* Mobile browsers misplace fixed-bottom elements while the URL bar is
+   animating in or out, opening a gap under the dock that the page shows
+   through. Bleed the dock's own background well past its bottom edge, so
+   whatever the browser exposes down there is dock, not initiative list. */
+.bottom-dock::after {
+  content: '';
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  height: 40vh;
+  background: var(--bg);
+}
+
 /* your numbers, pinned */
 
 .you-strip {
