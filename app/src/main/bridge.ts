@@ -5,6 +5,7 @@ import { ABILITY_KEYS, abilityMod } from '../shared/types';
 import { abilityCodeLabel, monsterName } from '../shared/i18n';
 import { handleAttackEvent, type AttackEventPayload } from './kenku';
 import { logAttackEvent, type AttackRollDetails } from './combatLog';
+import { resolveThrow } from './saveRequests';
 
 /**
  * Local WebSocket bridge for the Stream Deck plugin. The app is the server;
@@ -52,6 +53,11 @@ interface BridgeCommand {
     attackName?: string;
     attackerName?: string;
   };
+  /** saveResult (v3.6+): one target's answer to a pushed savePrompt. */
+  id?: string;
+  targetId?: string;
+  die?: number | null;
+  total?: number;
 }
 
 function stateMessage(state: AppState): string {
@@ -176,6 +182,18 @@ async function handleCommand(cmd: BridgeCommand): Promise<void> {
       // The deck's condition flow drops a combatant's Concentration tag.
       if (cmd.actorId) return store.setConcentration(cmd.actorId, null);
       return;
+    case 'saveResult': {
+      // The deck answering a throw the app asked for. resolveThrow decides the
+      // race: a row already taken elsewhere is left alone.
+      if (typeof cmd.id === 'string' && typeof cmd.targetId === 'string' && typeof cmd.total === 'number') {
+        resolveThrow(cmd.id, cmd.targetId, {
+          die: typeof cmd.die === 'number' ? cmd.die : null,
+          total: cmd.total,
+          by: 'deck',
+        });
+      }
+      return;
+    }
     case 'attackEvent': {
       // Deliberately absent from KNOWN_COMMANDS: a sound trigger should not
       // yank the DM window to the Combat screen.
@@ -260,9 +278,46 @@ function synthesizeRollDetails(
   };
 }
 
+/**
+ * Ask the decks for a saving throw. Pushed the moment a request opens, which is
+ * the first time the app has ever sent them anything but state — older plugins
+ * ignore unknown types, so this is safe in both directions.
+ */
+export function pushSavePrompt(req: {
+  id: string;
+  kind: 'concentration' | 'save';
+  ability: string;
+  dc: number;
+  attackName: string;
+  targets: Array<{ combatantId: string; result: unknown }>;
+}): void {
+  const owed = req.targets.filter((t) => !t.result).map((t) => t.combatantId);
+  if (owed.length === 0) return;
+  sendAll(
+    JSON.stringify({
+      type: 'savePrompt',
+      id: req.id,
+      kind: req.kind,
+      ability: req.ability,
+      dc: req.dc,
+      attackName: req.attackName,
+      targetIds: owed,
+    }),
+  );
+}
+
+/** Someone else answered it, or the fight moved on. */
+export function closeSavePrompt(id: string): void {
+  sendAll(JSON.stringify({ type: 'savePromptClosed', id }));
+}
+
 function broadcast(): void {
+  sendAll(stateMessage(store.getState()));
+}
+
+/** One frame to every connected deck. */
+function sendAll(msg: string): void {
   if (!wss) return;
-  const msg = stateMessage(store.getState());
   for (const client of wss.clients) {
     if (client.readyState === WebSocket.OPEN) client.send(msg);
   }

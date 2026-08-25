@@ -126,6 +126,11 @@ interface BridgeCommand {
     dice?: number[];
     total?: number;
   };
+  /** saveResult: one target's answer to a pushed savePrompt. */
+  id?: string;
+  targetId?: string;
+  die?: number | null;
+  total?: number;
   /** Save-based applyDamage: the throw this target made (mirror of bridge.ts). */
   save?: {
     ability: string;
@@ -1110,6 +1115,21 @@ export function createDemoApi(): Api {
         kenkuAttackEvent(cmd as unknown as { sourceId?: string; attackId: string; phase: string });
         logAttackRoll(cmd, 'deck');
         break;
+      case 'saveResult':
+        // The deck answering a throw the app asked for. resolveThrow decides
+        // the race: a row already taken elsewhere is left alone.
+        if (
+          typeof cmd.id === 'string' &&
+          typeof cmd.targetId === 'string' &&
+          typeof cmd.total === 'number'
+        ) {
+          resolveThrow(cmd.id, cmd.targetId, {
+            die: typeof cmd.die === 'number' ? cmd.die : null,
+            total: cmd.total,
+            by: 'deck',
+          });
+        }
+        break;
       case 'applyDamage':
         if (cmd.actorId && typeof cmd.amount === 'number') {
           // Mirror of bridge.ts: a save-based action logs the throw first.
@@ -1228,6 +1248,12 @@ export function createDemoApi(): Api {
   /** Deferred requests: they keep their finisher, and with it the damage. */
   const parkedRequests = new Map<string, DemoSaveRequest>();
   const saveReqListeners = new Set<(req: DemoSaveRequest) => void>();
+  /** Frames the app pushes AT the deck sim — mirror of main/bridge.ts sendAll. */
+  const deckMessageListeners = new Set<(json: string) => void>();
+  const sendToDeck = (msg: object): void => {
+    const json = JSON.stringify(msg);
+    for (const cb of deckMessageListeners) cb(json);
+  };
   const saveReqClosedListeners = new Set<(id: string) => void>();
   /** Prompts sitting on a phone-sim, keyed by prompt id. */
   const phonePrompts = new Map<
@@ -1279,7 +1305,24 @@ export function createDemoApi(): Api {
       }
     }
     announceRequest(req);
+    // Never for a pickup: reaching for a deferred card claims the throw.
+    if (!req.pickedUpBy) pushSavePromptToDeck(req);
     return req;
+  }
+
+  /** Mirror of main/bridge.ts pushSavePrompt. */
+  function pushSavePromptToDeck(req: DemoSaveRequest): void {
+    const owed = req.targets.filter((t) => !t.result).map((t) => t.combatantId);
+    if (owed.length === 0) return;
+    sendToDeck({
+      type: 'savePrompt',
+      id: req.id,
+      kind: req.kind,
+      ability: req.ability,
+      dc: req.dc,
+      attackName: req.attackName,
+      targetIds: owed,
+    });
   }
 
   function promptPhoneForThrow(req: DemoSaveRequest, target: DemoThrowTarget): string | null {
@@ -1346,6 +1389,7 @@ export function createDemoApi(): Api {
     parkedRequests.delete(requestId);
     cancelPhonePrompt(requestId, null);
     for (const cb of saveReqClosedListeners) cb(requestId);
+    sendToDeck({ type: 'savePromptClosed', id: requestId });
   }
 
   /** Drop deferred cards for a request — all, or just one target's. */
@@ -1403,8 +1447,18 @@ export function createDemoApi(): Api {
     for (const cb of saveReqClosedListeners) cb(requestId);
     const combat = cur().combat;
     if (!combat) return;
-    for (const t of owed) fileDeferredCard(req, t, requestId);
+    for (const t of owed) {
+      // Mirror of saveRequests.ts: never a second card for the same throw.
+      if (!hasDeferredCard(requestId, t.combatantId)) fileDeferredCard(req, t, requestId);
+    }
     save();
+  }
+
+  function hasDeferredCard(requestId: string, combatantId: string): boolean {
+    const log = cur().combat?.log ?? [];
+    return log.some(
+      (e) => e.kind === 'saveDeferred' && e.requestId === requestId && e.combatantId === combatantId,
+    );
   }
 
   function fileDeferredCard(
@@ -1440,7 +1494,7 @@ export function createDemoApi(): Api {
     if (!target) return;
     target.awaiting = null;
     cancelPhonePrompt(requestId, combatantId);
-    fileDeferredCard(req, target, requestId);
+    if (!hasDeferredCard(requestId, combatantId)) fileDeferredCard(req, target, requestId);
     save();
     if (req.pickedUpBy === 'phone') {
       saveRequests.delete(requestId);
@@ -2291,6 +2345,10 @@ export function createDemoApi(): Api {
           playerSessions.delete(session);
         },
       };
+    },
+    onDeckMessage: (cb: (json: string) => void) => {
+      deckMessageListeners.add(cb);
+      return () => deckMessageListeners.delete(cb);
     },
     onState: (cb: () => void) => {
       const wrapped = () => cb();

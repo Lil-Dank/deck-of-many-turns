@@ -60,6 +60,32 @@ export interface BridgeState {
   language?: 'en' | 'de';
 }
 
+/**
+ * A saving throw the app is asking the table to make. Pushed rather than
+ * polled, because it can land at any moment — damage to a concentrating PC,
+ * or a spell someone aimed at the party.
+ *
+ * The deck is one of several places it can be answered; the app takes the
+ * first answer and sends savePromptClosed to whoever else is showing it.
+ */
+export interface BridgeSavePrompt {
+  type: 'savePrompt';
+  id: string;
+  kind: 'concentration' | 'save';
+  /** Ability code thrown against the DC, e.g. 'CON'. */
+  ability: string;
+  dc: number;
+  /** The spell or action that forced it, already localized. */
+  attackName: string;
+  /** Combatant ids still owing this throw. */
+  targetIds: string[];
+}
+
+export interface BridgeSavePromptClosed {
+  type: 'savePromptClosed';
+  id: string;
+}
+
 export type BridgeCommand =
   | { type: 'nextTurn' }
   | { type: 'prevTurn' }
@@ -91,6 +117,15 @@ export type BridgeCommand =
   | { type: 'applyHeal'; actorId: string; amount: number }
   | { type: 'toggleCondition'; actorId: string; condition: string }
   | { type: 'clearConcentration'; actorId: string }
+  | {
+      /** One target's answer to a savePrompt. First answer anywhere wins. */
+      type: 'saveResult';
+      id: string;
+      targetId: string;
+      /** null when a physical d20 was rolled and the total typed. */
+      die: number | null;
+      total: number;
+    }
   | {
       /**
        * Attack-flow progress report; app-side it triggers Kenku sounds and,
@@ -126,6 +161,7 @@ class Bridge {
   private port = DEFAULT_PORT;
   private retryTimer: NodeJS.Timeout | null = null;
   private listeners = new Set<(state: BridgeState) => void>();
+  private promptListeners = new Set<(msg: BridgeSavePrompt | BridgeSavePromptClosed) => void>();
   state: BridgeState = { type: 'state', combatants: [], currentIndex: 0, round: 0 };
   connected = false;
 
@@ -142,6 +178,11 @@ class Bridge {
 
   onState(listener: (state: BridgeState) => void): void {
     this.listeners.add(listener);
+  }
+
+  /** Saving throws the app wants answered — see BridgeSavePrompt. */
+  onPrompt(listener: (msg: BridgeSavePrompt | BridgeSavePromptClosed) => void): void {
+    this.promptListeners.add(listener);
   }
 
   private connect(): void {
@@ -167,6 +208,8 @@ class Bridge {
         if (msg.type === 'state') {
           this.state = msg as BridgeState;
           for (const l of this.listeners) l(this.state);
+        } else if (msg.type === 'savePrompt' || msg.type === 'savePromptClosed') {
+          for (const l of this.promptListeners) l(msg as BridgeSavePrompt | BridgeSavePromptClosed);
         }
       } catch {
         // ignore malformed

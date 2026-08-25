@@ -242,6 +242,14 @@ function boot() {
     const push = () => sock.emit('message', JSON.stringify(demo.bridgeState()));
     push();
     demo.onState(push);
+    // Saving throws the app pushes at the deck, same socket as state.
+    demo.onDeckMessage?.((json) => sock.emit('message', json));
+    // Mirror of plugin.ts: the real hardware reads its device off the key
+    // event that opened a flow; the simulator only ever has the one.
+    bridge.onPrompt((msg) => {
+      if (msg.type === 'savePrompt') void picker.beginSavePrompt(DEVICE, msg);
+      else void picker.closeSavePrompt(msg.id);
+    });
     renderMain();
     demo.onState(() => {
       if (mode === 'main') renderMain();

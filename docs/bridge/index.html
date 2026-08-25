@@ -100,6 +100,7 @@
     <div class="nav-title">Bookmarks</div>
     <a href="#connection">Connection</a>
     <a href="#state-message">State message</a>
+    <a href="#save-prompts">Save prompts</a>
     <a href="#commands">Commands</a>
     <a class="sub" href="#attackevent-phases">attackEvent phases</a>
     <a class="sub" href="#condition-values">Condition values</a>
@@ -187,6 +188,36 @@
       the DM or a player has defined them.
     </div>
 
+    <h2 id="save-prompts">Save prompts (app &rarr; client, v3.6+)</h2>
+    <p>
+      The only messages the app pushes besides <code>state</code>. A saving
+      throw can be owed at any moment &mdash; damage to a concentrating
+      character, or a spell aimed at the party &mdash; and the app asks every
+      surface that could answer it: the DM window, the players' phones, and
+      any connected bridge client.
+    </p>
+    <pre><code>{
+  "type": "savePrompt",
+  "id": "9c1f…",              // answer with saveResult, quoting this id
+  "kind": "concentration",     // "concentration" | "save"
+  "ability": "CON",            // thrown against the DC
+  "dc": 13,
+  "attackName": "Bless",       // localized to `language`
+  "targetIds": ["6f0c…"]       // combatants still owing the throw
+}
+
+{ "type": "savePromptClosed", "id": "9c1f…" }</code></pre>
+    <div class="note">
+      <strong>First answer wins, per target.</strong> Several surfaces hold the
+      same prompt at once, so a client should treat
+      <code>savePromptClosed</code> as "put it away, somebody got there first"
+      rather than an error. Sending a <code>saveResult</code> for a target that
+      is already answered is harmless and simply ignored.
+      <br><br>
+      Clients older than v3.6 ignore both messages, and the app works fine
+      without any client answering &mdash; the DM window always has the throw.
+    </div>
+
     <h2 id="commands">Commands (client &rarr; app)</h2>
     <p>One JSON object per WebSocket message.</p>
     <table>
@@ -239,6 +270,18 @@
           matches one produced in the app window. Omit <code>die</code> when
           the total was not rolled by the client (a physical d20 typed in),
           and omit <code>total</code> too when only the verdict is known.</td>
+      </tr>
+      <tr>
+        <td><code>saveResult</code></td>
+        <td><code>{"type":"saveResult",
+ "id":"9c1f…",
+ "targetId":"6f0c…",
+ "die":14,
+ "total":16}</code></td>
+        <td>One target's answer to a <a href="#save-prompts">savePrompt</a>.
+          <code>die</code> is the raw d20, or <code>null</code> when a physical
+          die was rolled and only the total is known. Send one per target you
+          answered; the app decides the race and logs the throw.</td>
       </tr>
       <tr>
         <td><code>applyHeal</code></td>

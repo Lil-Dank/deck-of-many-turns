@@ -12,6 +12,7 @@ import {
   resolvePendingSave,
 } from './playerServer';
 import { importSrdMonsters, importSrdSpells } from './srd';
+import { closeSavePrompt, pushSavePrompt } from './bridge';
 import { reopenDeferredThrow } from './concentration';
 import {
   closeRequest,
@@ -194,10 +195,15 @@ export function registerIpc(): void {
   onSaveRequestChanged((req: SaveRequest) => {
     for (const win of getAllWindows()) win.webContents.send('saveRequest', req);
     if (req.targets.some((t) => !t.result)) flashDmWindow(true);
+    // The decks get it too, so a throw can be answered on hardware. They only
+    // take it when idle (see picker.beginSavePrompt), and never for a pickup:
+    // reaching for a deferred card claims the throw for whoever reached.
+    if (!req.pickedUpBy) pushSavePrompt(req);
   });
   onSaveRequestClosed((id) => {
     for (const win of getAllWindows()) win.webContents.send('saveRequestClosed', id);
     flashDmWindow(false);
+    closeSavePrompt(id);
   });
 }
 

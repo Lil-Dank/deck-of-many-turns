@@ -7,6 +7,27 @@ to its GitHub release, where the installer and the packed plugin are attached.
 
 ## [Unreleased]
 
+### Added
+
+- **A saving throw can be answered anywhere.** When one is owed — a
+  concentration check after damage, or a save aimed at a character — the DM
+  window, the player's phone and the Stream Deck are all asked at once, and
+  whoever answers first settles it. The others put their prompt away. On an
+  area save the race is per target, so each player fills in their own row while
+  the DM adjudicates the rest.
+- **Concentration checks now always reach the DM.** They used to exist only if
+  a phone was connected to answer them: an unclaimed character, a disconnected
+  phone or the player server being switched off dropped the check silently and
+  the spell stayed up.
+- **Putting a throw off doesn't lose it.** Dismissing files it as a card in the
+  combat log, which the DM or the character who owes it can throw later, ignore,
+  or delete. Only those two see it.
+
+- **The combat log opens at the present.** Entering the Combat screen mid-fight
+  starts the log at the newest entry instead of round one, and scrolling up to
+  read history shows a *Jump to present* button — while it is up, new entries no
+  longer yank the view down.
+
 ### Fixed
 
 - **A concentration check rolled on the phone now tumbles like every other

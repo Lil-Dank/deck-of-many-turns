@@ -1,5 +1,11 @@
 import streamDeck, { type KeyAction, type Device } from '@elgato/streamdeck';
-import { bridge, type BridgeAttack, type BridgeCombatant, type BridgeCommand } from './bridge';
+import {
+  bridge,
+  type BridgeAttack,
+  type BridgeCombatant,
+  type BridgeCommand,
+  type BridgeSavePrompt,
+} from './bridge';
 import { rollD20, rollDice, rollPool } from './dice';
 import { pickerKeyImage, type KeyRole } from './key-image';
 import { L, conditionLabel, setPluginLang } from './i18n';
@@ -210,6 +216,12 @@ class Picker {
   private saveRolls = new Map<string, { die: number | null; total: number }>();
   /** Target whose total the saveEntry numpad is filling in. */
   private saveEntryId: string | null = null;
+  /**
+   * A throw the APP asked for, rather than one this deck started. The screens
+   * are the same; what differs is the ending — there is no damage to apply
+   * here, the deck just reports each throw and the app owns the consequences.
+   */
+  private savePrompt: BridgeSavePrompt | null = null;
   /** Idle timeout: exit when a picker screen gets no input. */
   private idleTimer: NodeJS.Timeout | null = null;
   idleTimeoutMs = 90_000;
@@ -306,6 +318,41 @@ class Picker {
     });
   }
 
+  /**
+   * The app is asking for a saving throw. Only taken when the deck is idle:
+   * jumping out of a flow the DM has their hands in — mid target-pick, mid
+   * numpad, mid apply countdown — loses their work, and the same throw is on
+   * the DM's screen and the players' phones anyway.
+   */
+  async beginSavePrompt(device: Device | null, prompt: BridgeSavePrompt): Promise<void> {
+    if (this.mode !== null) return;
+    const dev = device ?? this.device;
+    if (!dev) return;
+    const targets = prompt.targetIds.filter((id) => this.alive().some((c) => c.id === id));
+    if (targets.length === 0) return;
+    await this.enter(dev, 'saveMode', null, () => {
+      this.savePrompt = prompt;
+      this.targets = targets;
+      // saveInfo and isAoe both read selectedAttack, so stand one in: it
+      // carries the ability and DC in the shape the save screens already parse.
+      this.selectedAttack = {
+        id: `prompt:${prompt.id}`,
+        name: prompt.attackName,
+        toHit: null,
+        save: `${prompt.ability} ${prompt.dc}`,
+        damage: [],
+      };
+      this.actorName = prompt.attackName;
+    });
+  }
+
+  /** Someone else answered it, or the fight moved on. */
+  async closeSavePrompt(id: string): Promise<void> {
+    if (this.savePrompt?.id !== id) return;
+    this.savePrompt = null;
+    await this.exit();
+  }
+
   async beginAttack(device: Device): Promise<boolean> {
     const current = bridge.state.combatants.find((c) => c.isCurrentTurn);
     const attacks = current?.attacks ?? [];
@@ -322,7 +369,19 @@ class Picker {
     return ok;
   }
 
-  private async enter(device: Device, mode: Mode, op: PickerOp | null): Promise<boolean> {
+  /**
+   * `seed` runs after the reset but before the first await. A flow that needs
+   * state on entry must set it there: this method yields twice (profile switch,
+   * render), and a bridge state push landing in that window sees a half-built
+   * screen — an empty target list is enough to bounce the mode back to
+   * targetSelect under the DM's fingers.
+   */
+  private async enter(
+    device: Device,
+    mode: Mode,
+    op: PickerOp | null,
+    seed?: () => void,
+  ): Promise<boolean> {
     const profile = this.profileForDevice(device);
     if (!profile) {
       streamDeck.logger.warn(`No picker profile for device grid ${device.size?.columns}x${device.size?.rows}`);
@@ -353,6 +412,8 @@ class Picker {
     this.pendingDamage = 0;
     this.saveRolls.clear();
     this.saveEntryId = null;
+    this.savePrompt = null;
+    seed?.();
     this.touchIdle();
     await streamDeck.profiles.switchToProfile(device.id, profile.name);
     await this.render();
@@ -476,6 +537,7 @@ class Picker {
     this.op = null;
     this.actorId = null;
     this.advMode = 'normal';
+    this.savePrompt = null;
     if (deviceId) {
       // Switching without a profile returns to the previously active profile.
       await streamDeck.profiles.switchToProfile(deviceId);
@@ -789,12 +851,11 @@ class Picker {
       if (slot === this.cancelSlot) return K(L('cancel'), 'cancel');
       if (slot === this.confirmDisplaySlot) {
         const info = this.saveInfo;
+        const head = this.savePrompt
+          ? wrapTitle(this.savePrompt.attackName, 8, 1)
+          : L('saveDmg', { amount: this.pendingDamage });
         return K(
-          [
-            L('saveDmg', { amount: this.pendingDamage }),
-            info ? `${info.ability} ${info.dc}` : '',
-            L('saveHow'),
-          ]
+          [head, info ? `${info.ability} ${info.dc}` : '', L('saveHow')]
             .filter(Boolean)
             .join('\n'),
           'display',
@@ -832,11 +893,21 @@ class Picker {
       if (slot === this.confirmDisplaySlot) {
         if (this.applyTimer) return K(this.lastRoll, 'display');
         // Doubles as the re-roll key for the whole area.
+        if (this.savePrompt) {
+          const info = this.saveInfo;
+          return K(
+            [wrapTitle(this.savePrompt.attackName, 8, 1), info ? `${info.ability} ${info.dc}` : '',
+              L('rollAgain')].filter(Boolean).join('\n'),
+            'item',
+          );
+        }
         return K(L('rollSaves', { amount: this.pendingDamage }), 'item');
       }
       if (slot === this.doneSlot) {
-        const half = Math.floor(this.pendingDamage / 2);
         if (!this.allSavesEntered) return K(L('savesPending'), 'display');
+        // A prompt has nothing to apply: the app owns what the throw decides.
+        if (this.savePrompt) return K(L('saveSend'), 'confirm');
+        const half = Math.floor(this.pendingDamage / 2);
         return K(`⚔ Apply\n${this.savedTargets.length}×½(${half})`, 'confirm');
       }
       if (paged && slot === pageSlot) return K(L('more'), 'page');
@@ -848,7 +919,7 @@ class Picker {
         return K(`—\n${this.targetName(c, 2)}`, c.type === 'pc' ? 'itemPc' : 'item');
       }
       return K(
-        `${roll.total} ${saved ? '✓½' : '✗'}\n${this.targetName(c, 2)}`,
+        `${roll.total} ${saved ? (this.savePrompt ? '✓' : '✓½') : '✗'}\n${this.targetName(c, 2)}`,
         saved ? 'selected' : c.type === 'pc' ? 'itemPc' : 'item',
       );
     }
@@ -1269,6 +1340,9 @@ class Picker {
    */
   private async pressSaveMode(slot: number, _action: KeyAction): Promise<void> {
     if (slot === 0) {
+      // An app-pushed prompt has no roll screen behind it: Back declines,
+      // leaving the throw with the DM window and the phones.
+      if (this.savePrompt) return this.exit();
       this.mode = 'attackRoll';
       this.lastRoll = `DMG ${this.pendingDamage}`;
       return this.render();
@@ -1322,6 +1396,8 @@ class Picker {
 
   private async pressSaveResult(slot: number, _action: KeyAction): Promise<void> {
     if (slot === 0) {
+      // Back on an app-pushed prompt declines it — no roll screen behind it.
+      if (this.savePrompt) return this.exit();
       // Back: abandon a pending apply and return to the roll screen.
       this.clearPendingApply();
       this.mode = 'attackRoll';
@@ -1342,6 +1418,16 @@ class Picker {
     }
     if (slot === this.doneSlot) {
       if (!this.allSavesEntered) return;
+      if (this.savePrompt) {
+        // Report each throw and step aside. Whichever surface answered first
+        // wins app-side, so a row already taken elsewhere is simply ignored.
+        const promptId = this.savePrompt.id;
+        for (const [targetId, roll] of this.saveRolls) {
+          bridge.send({ type: 'saveResult', id: promptId, targetId, die: roll.die, total: roll.total });
+        }
+        this.savePrompt = null;
+        return this.exit();
+      }
       const full = this.pendingDamage;
       const half = Math.floor(full / 2);
       const info = this.saveInfo;

@@ -293,7 +293,18 @@ export async function deferRequest(requestId: string): Promise<void> {
   parked.set(requestId, req);
   phoneCanceller?.(requestId, null);
   closeListener?.(requestId);
-  for (const t of owed) await fileDeferredCard(req, t, requestId);
+  for (const t of owed) {
+    // A target the player already backed out of has its card in the log; the
+    // DM dismissing the rest must not file a second one for the same throw.
+    if (!hasDeferredCard(requestId, t.combatantId)) await fileDeferredCard(req, t, requestId);
+  }
+}
+
+function hasDeferredCard(requestId: string, combatantId: string): boolean {
+  const log = store.getState().combat?.log ?? [];
+  return log.some(
+    (e) => e.kind === 'saveDeferred' && e.requestId === requestId && e.combatantId === combatantId,
+  );
 }
 
 async function fileDeferredCard(
@@ -336,7 +347,7 @@ export async function deferTarget(requestId: string, combatantId: string): Promi
   if (!target) return;
   target.awaiting = null;
   phoneCanceller?.(requestId, combatantId);
-  await fileDeferredCard(req, target, requestId);
+  if (!hasDeferredCard(requestId, combatantId)) await fileDeferredCard(req, target, requestId);
   if (req.pickedUpBy === 'phone') {
     requests.delete(requestId);
     parked.set(requestId, req);

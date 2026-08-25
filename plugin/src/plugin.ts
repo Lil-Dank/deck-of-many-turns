@@ -1,6 +1,7 @@
 import streamDeck, {
   action,
   SingletonAction,
+  type Device,
   type JsonValue,
   type KeyDownEvent,
   type WillAppearEvent,
@@ -92,6 +93,13 @@ class CurrentTurn extends TurnAction {
   }
 }
 
+/**
+ * The last deck a key was pressed on. An app-pushed prompt has no event of its
+ * own to read a device from, and picker.device stays null until the DM opens
+ * something themselves.
+ */
+let lastDevice: Device | null = null;
+
 /** Damage / Heal / Condition all open the picker flow with a pending op. */
 class OpAction extends SingletonAction {
   constructor(private op: PickerOp) {
@@ -103,6 +111,7 @@ class OpAction extends SingletonAction {
       await ev.action.showAlert();
       return;
     }
+    lastDevice = ev.action.device;
     const ok = await picker.begin(this.op, ev.action.device);
     if (!ok) await ev.action.showAlert();
   }
@@ -137,6 +146,7 @@ class EndCombatAction extends SingletonAction {
       await ev.action.showAlert();
       return;
     }
+    lastDevice = ev.action.device;
     const ok = await picker.beginEndConfirm(ev.action.device);
     if (!ok) await ev.action.showAlert();
   }
@@ -147,6 +157,7 @@ class EndCombatAction extends SingletonAction {
 class DiceAction extends SingletonAction {
   override async onKeyDown(ev: KeyDownEvent): Promise<void> {
     // Works without the app too (pure rolling); apply needs the bridge.
+    lastDevice = ev.action.device;
     const ok = await picker.beginDice(ev.action.device);
     if (!ok) await ev.action.showAlert();
   }
@@ -160,6 +171,7 @@ class AttackAction extends SingletonAction {
       await ev.action.showAlert();
       return;
     }
+    lastDevice = ev.action.device;
     const ok = await picker.beginAttack(ev.action.device);
     if (!ok) await ev.action.showAlert();
   }
@@ -218,6 +230,24 @@ bridge.onState(() => {
   void nextTurn.refreshTitles();
   void prevTurn.refreshTitles();
   void currentTurn.refreshTitles();
+});
+
+/**
+ * A saving throw can arrive with no key press behind it, and the picker only
+ * learns which device it is on when the DM presses something. So remember the
+ * last device any key reported, and fall back to whatever is attached.
+ */
+function promptDevice(): Device | null {
+  if (lastDevice) return lastDevice;
+  for (const device of streamDeck.devices) {
+    if (device.isConnected) return device;
+  }
+  return null;
+}
+
+bridge.onPrompt((msg) => {
+  if (msg.type === 'savePrompt') void picker.beginSavePrompt(promptDevice(), msg);
+  else void picker.closeSavePrompt(msg.id);
 });
 
 // Bridge port is configurable from any action's property inspector.
