@@ -42,6 +42,11 @@ export interface LogCardsProps {
   onDeleteEntry?: (id: string) => void | Promise<void>;
   /** Lets the host suppress auto-scroll while an editor is open. */
   onEditingChange?: (editing: boolean) => void;
+  /**
+   * A deferred saving throw's "throw it" button. Absent on surfaces that
+   * cannot open a prompt (the Player View, archived combats), which hides it.
+   */
+  onThrowDeferred?: (entry: LogEntry) => void | Promise<void>;
 }
 
 export function SegText({ segs }: { segs: LogSegment[] }) {
@@ -83,6 +88,7 @@ export function LogCards({
   onEditEntry,
   onDeleteEntry,
   onEditingChange,
+  onThrowDeferred,
 }: LogCardsProps) {
   const items = useMemo(() => buildLogCards(log), [log]);
   const now = useNow(60_000);
@@ -307,6 +313,35 @@ export function LogCards({
     );
   };
 
+  /**
+   * A saving throw the DM put off rather than answered. It keeps everything the
+   * throw needs, so it can still be made — or ignored, or deleted. Only the DM
+   * and the character who owes it ever see this card.
+   */
+  const renderDeferred = (b: CardBlock & { kind: 'deferred' }) => {
+    const e = b.entry;
+    return (
+      <div key={b.key} className="log-block lb-deferred" data-kind="deferred">
+        {tools(e)}
+        <div className="save-label sc">
+          ⏳ {t('save.deferred', { ability: abilityCodeLabel(lang, e.ability ?? '') })}
+          {e.attackName ? ` \u2014 ${e.attackName}` : ''}
+        </div>
+        <div className="lb-roll noclick">
+          {e.dc !== undefined && (
+            <span className="vs tnum">{t('log.card.vsDc', { dc: e.dc })}</span>
+          )}
+          {onThrowDeferred && (
+            <button className="btn small primary" onClick={() => void onThrowDeferred(e)}>
+              🎲 {t('save.throwIt')}
+            </button>
+          )}
+        </div>
+        {editor(e)}
+      </div>
+    );
+  };
+
   const renderTextBlock = (b: CardBlock & { kind: 'take' | 'heal' | 'condition' | 'downkill' }) => {
     const e = b.entry;
     const cls = b.kind === 'downkill' ? 'log-block lb-down' : 'log-block';
@@ -335,6 +370,8 @@ export function LogCards({
         return renderCast(b);
       case 'save':
         return renderSave(b);
+      case 'deferred':
+        return renderDeferred(b);
       default:
         return renderTextBlock(b);
     }

@@ -68,6 +68,11 @@ export function CombatLogPanel({ log, combatants }: { log: LogEntry[]; combatant
             name: monsterName(lang, c.displayName),
             type: c.type,
           }))}
+          onThrowDeferred={async (entry) => {
+            // Reopens the prompt the DM put off. The card stays until the throw
+            // lands, so a second dismissal just files it again.
+            if (await api.reopenDeferredThrow(entry)) await api.deleteLogEntry(entry.id);
+          }}
           onEditEntry={(id, patch) => api.editLogEntry(id, patch)}
           onDeleteEntry={async (id) => {
             if (await confirm(t('log.card.deleteConfirm'), t('common.delete'))) {

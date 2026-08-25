@@ -8,6 +8,7 @@ import { registerIpc, broadcastPlayerViewStatus } from './ipc';
 import { createDmWindow, initWindowState, onPlayerViewChanged } from './windows';
 import { startBridge } from './bridge';
 import { startPlayerServer, stopPlayerServer } from './playerServer';
+import { startConcentrationChecks } from './concentration';
 import { loadGermanMonsterNames, loadGermanSpellL10n } from './srd';
 import { handleCombatEvent, startKenkuStatusPolling } from './kenku';
 import { setMonsterNameMap } from '../shared/i18n';
@@ -88,6 +89,7 @@ app.whenReady().then(async () => {
   onPlayerViewChanged(() => broadcastPlayerViewStatus());
   startBridge();
   startPlayerServer();
+  startConcentrationChecks();
   store.onCombatEvent(handleCombatEvent);
   startKenkuStatusPolling();
   createDmWindow(store.getState().settings.theme);

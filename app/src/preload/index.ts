@@ -163,6 +163,40 @@ const api = {
     results: Array<{ targetId: string; saved: boolean; total?: number; die?: number }>,
   ): Promise<void> => ipcRenderer.invoke('playerWeb:resolveSave', { id, results }),
   dismissPlayerSave: (id: string): Promise<void> => ipcRenderer.invoke('playerWeb:dismissSave', id),
+  // ---- Saving throws owed (concentration checks, saves aimed at a PC) ----
+  // The DM window hears about every one, whether or not a phone was also asked.
+  openSaveRequest: (
+    input: import('../main/saveRequests').SaveRequestInput,
+  ): Promise<import('../main/saveRequests').SaveRequest | null> =>
+    ipcRenderer.invoke('saveRequest:open', input),
+  getSaveRequest: (
+    id: string,
+  ): Promise<import('../main/saveRequests').SaveRequest | null> =>
+    ipcRenderer.invoke('saveRequest:get', id),
+  resolveSaveThrow: (
+    id: string,
+    combatantId: string,
+    result: import('../main/saveRequests').ThrowResult,
+  ): Promise<boolean> => ipcRenderer.invoke('saveRequest:resolve', { id, combatantId, result }),
+  closeSaveRequest: (id: string): Promise<void> => ipcRenderer.invoke('saveRequest:close', id),
+  /** Dismiss: files the throw as a card in the log rather than losing it. */
+  deferSaveRequest: (id: string): Promise<void> => ipcRenderer.invoke('saveRequest:defer', id),
+  /** That card's "throw it": rebuild the request it was filed from. */
+  reopenDeferredThrow: (entry: import('../shared/types').LogEntry): Promise<boolean> =>
+    ipcRenderer.invoke('saveRequest:reopen', entry),
+  onSaveRequest: (
+    cb: (req: import('../main/saveRequests').SaveRequest) => void,
+  ): (() => void) => {
+    const handler = (_e: unknown, req: import('../main/saveRequests').SaveRequest) => cb(req);
+    ipcRenderer.on('saveRequest', handler);
+    return () => ipcRenderer.removeListener('saveRequest', handler);
+  },
+  onSaveRequestClosed: (cb: (id: string) => void): (() => void) => {
+    const handler = (_e: unknown, id: string) => cb(id);
+    ipcRenderer.on('saveRequestClosed', handler);
+    return () => ipcRenderer.removeListener('saveRequestClosed', handler);
+  },
+
   onPlayerSavePending: (cb: (pending: PlayerSavePendingInfo) => void): (() => void) => {
     const handler = (_e: unknown, pending: PlayerSavePendingInfo) => cb(pending);
     ipcRenderer.on('playerSavePending', handler);

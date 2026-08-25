@@ -147,6 +147,18 @@ function notifyPlayerViewChanged(): void {
   playerViewChangedCb?.();
 }
 
+/**
+ * Flash the DM window in the taskbar. Used when a saving throw is owed and the
+ * app is not the focused window — a concentration check usually lands while the
+ * DM is in OBS or a browser. Deliberately does NOT raise or focus the window:
+ * stealing focus mid-scene is worse than a missed prompt.
+ */
+export function flashDmWindow(on: boolean): void {
+  if (!dmWindow || dmWindow.isDestroyed()) return;
+  if (on && dmWindow.isFocused()) return;
+  dmWindow.flashFrame(on);
+}
+
 export function getAllWindows(): BrowserWindow[] {
   return [dmWindow, playerWindow].filter((w): w is BrowserWindow => w !== null);
 }

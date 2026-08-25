@@ -15,6 +15,8 @@ import { I18nProvider } from './i18n';
 import { KenkuSoundboardModal } from './KenkuSoundboardModal';
 import { PlayerWebQrModal } from './PlayerWebQrModal';
 import { PlayerSaveModal } from './PlayerSaveModal';
+import { SaveRequestModal } from './SaveRequestModal';
+import type { SaveRequest } from '../../main/saveRequests';
 import type { PlayerSavePendingInfo } from '../../preload/index';
 import { translate } from '../../shared/i18n';
 import { DEFAULT_PALETTE, PALETTE_BY_ID } from '../../shared/brand';
@@ -45,6 +47,9 @@ export function App() {
   const [showSoundboard, setShowSoundboard] = useState(false);
   const [showQr, setShowQr] = useState(false);
   const [pendingSave, setPendingSave] = useState<PlayerSavePendingInfo | null>(null);
+  // Saving throws owed. A queue, because several hits in a round mean several
+  // concentration checks and they must not stack on top of each other.
+  const [saveReqs, setSaveReqs] = useState<SaveRequest[]>([]);
   const isPlayerView = window.location.hash.replace('#', '') === 'player';
   const lang = state?.settings.language ?? 'en';
 
@@ -102,12 +107,29 @@ export function App() {
         setTab('combat');
       }
     });
+    // A saving throw is owed: concentration after damage, or a save aimed at a
+    // PC. Arrives whether or not a phone was also asked.
+    const offReq = api.onSaveRequest((req) => {
+      if (isPlayerView) return;
+      setSaveReqs((qs) => {
+        const i = qs.findIndex((q) => q.id === req.id);
+        if (i === -1) return [...qs, req];
+        const next = [...qs];
+        next[i] = req;
+        return next;
+      });
+    });
+    const offReqClosed = api.onSaveRequestClosed((id) => {
+      setSaveReqs((qs) => qs.filter((q) => q.id !== id));
+    });
     return () => {
       mounted = false;
       off();
       offPv();
       offFocus();
       offSave();
+      offReq();
+      offReqClosed();
     };
   }, []);
 
@@ -205,6 +227,16 @@ export function App() {
             state={state}
             pending={pendingSave}
             onClose={() => setPendingSave(null)}
+          />
+        )}
+        {saveReqs.length > 0 && (
+          <SaveRequestModal
+            req={saveReqs[0]}
+            pending={saveReqs.length - 1}
+            onDismiss={(req) => {
+              // Not lost: it becomes a card in the log that can still be thrown.
+              void api.deferSaveRequest(req.id);
+            }}
           />
         )}
       </main>

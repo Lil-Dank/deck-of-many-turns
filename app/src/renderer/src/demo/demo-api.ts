@@ -413,37 +413,23 @@ export function createDemoApi(): Api {
         if (c.concentration) c.concentration = null;
       }
     }
-    // Damage to a concentrating PC → the claiming phone-sim gets a CON-save
-    // prompt (mirror of state.ts + playerServer.ts).
+    // Damage to a concentrating PC forces a CON save. Mirror of state.ts +
+    // concentration.ts: the request exists whether or not a phone can see it.
     if (c.type === 'pc' && !c.isDowned && c.concentration) {
-      const session = [...playerSessions].find((s) => s.pcId === c.sourceId);
-      if (session) {
-        const pc = cur().pcs.find((p) => p.id === c.sourceId);
-        const conMod = pc?.abilities ? abilityMod(pc.abilities.con) : null;
-        const pending: ConcSave = {
-          id: uuid(),
-          pcId: c.sourceId,
-          combatantId: c.id,
-          spellName: c.concentration.name,
-          deName: c.concentration.deName ?? null,
-          dc: Math.max(10, Math.floor(amount / 2)),
-          damage: amount,
-          conMod,
-          session,
-        };
-        concSaves.set(pending.id, pending);
-        session.onMessage(
-          JSON.stringify({
-            type: 'concSave',
-            id: pending.id,
-            spellName: pending.spellName,
-            deName: pending.deName,
-            dc: pending.dc,
-            damage: amount,
-            conMod,
-          }),
-        );
-      }
+      const spell = c.concentration;
+      const combatantId = c.id;
+      openSaveRequest({
+        kind: 'concentration',
+        ability: 'CON',
+        dc: Math.max(10, Math.floor(amount / 2)),
+        // The bare spell everywhere; the "Concentration (…)" label is built at
+        // write time, so reopening a deferred card cannot double it up.
+        attackName: data.settings.language === 'de' && spell.deName ? spell.deName : spell.name,
+        spellName: data.settings.language === 'de' && spell.deName ? spell.deName : spell.name,
+        damage: amount,
+        combatantIds: [combatantId],
+        onResolved: (req) => applyConcentration(req, combatantId),
+      });
     }
     save();
     kenkuCombatEvent('damageApplied');
@@ -772,6 +758,8 @@ export function createDemoApi(): Api {
       },
       {
         name: 'Seraphina Dawnbringer', maxHp: 45, ac: 17, initMod: 1,
+        abilities: { str: 12, dex: 12, con: 14, int: 10, wis: 17, cha: 13 },
+        notes: 'Human cleric 5 · Channel Divinity · speed 30 ft',
         attacks: [pcAttack('Sacred Flame', null, { ability: 'DEX', dc: 13 }, '1d8', 1, 8, 0, 4, 'radiant')],
       },
     ]) {
@@ -1193,69 +1181,327 @@ export function createDemoApi(): Api {
   const pendingSaves = new Map<string, PendingSave>();
 
   /** Pending Concentration checks (mirror of playerServer.ts). */
-  interface ConcSave {
-    id: string;
-    pcId: string;
-    combatantId: string;
-    spellName: string;
-    deName: string | null;
-    dc: number;
-    damage: number;
-    conMod: number | null;
-    session: PlayerSession;
-  }
-  const concSaves = new Map<string, ConcSave>();
+  // ---- saving throws owed (mirror of main/saveRequests.ts) -------------------
 
-  function resolveConcSave(
-    pending: ConcSave,
-    die: number | null,
-    total: number,
-    revealMs = 0,
-  ): void {
-    concSaves.delete(pending.id);
-    const saved = total >= pending.dc;
-    pending.session.onMessage(
+  interface DemoThrowResult {
+    die: number | null;
+    total: number;
+    by: string;
+  }
+  interface DemoThrowTarget {
+    combatantId: string;
+    name: string;
+    type: 'pc' | 'monster';
+    pcId: string | null;
+    mod: number | null;
+    awaiting: string | null;
+    result: DemoThrowResult | null;
+  }
+  interface DemoSaveRequest {
+    id: string;
+    kind: 'concentration' | 'save';
+    ability: string;
+    dc: number;
+    attackName: string;
+    attackerName?: string;
+    spellName?: string;
+    damage?: number;
+    /** A pickup off a deferred card stays with whoever reached for it. */
+    pickedUpBy?: 'dm' | 'phone';
+    targets: DemoThrowTarget[];
+  }
+  interface DemoSaveRequestInput {
+    kind: 'concentration' | 'save';
+    ability: string;
+    dc: number;
+    attackName: string;
+    attackerName?: string;
+    spellName?: string;
+    damage?: number;
+    pickedUpBy?: 'dm' | 'phone';
+    combatantIds: string[];
+    onResolved?: (req: DemoSaveRequest) => void;
+  }
+
+  const saveRequests = new Map<string, DemoSaveRequest>();
+  const saveFinishers = new Map<string, (req: DemoSaveRequest) => void>();
+  /** Deferred requests: they keep their finisher, and with it the damage. */
+  const parkedRequests = new Map<string, DemoSaveRequest>();
+  const saveReqListeners = new Set<(req: DemoSaveRequest) => void>();
+  const saveReqClosedListeners = new Set<(id: string) => void>();
+  /** Prompts sitting on a phone-sim, keyed by prompt id. */
+  const phonePrompts = new Map<
+    string,
+    { id: string; requestId: string; combatantId: string; session: PlayerSession }
+  >();
+
+  /** The DM hears about it unless a player picked it up for themselves. */
+  function announceRequest(req: DemoSaveRequest): void {
+    if (req.pickedUpBy === 'phone') return;
+    for (const cb of saveReqListeners) cb(req);
+  }
+
+  function openSaveRequest(input: DemoSaveRequestInput): DemoSaveRequest | null {
+    const combat = cur().combat;
+    if (!combat) return null;
+    const lang = data.settings.language;
+    const key = input.ability.toLowerCase().slice(0, 3);
+    const targets: DemoThrowTarget[] = [];
+    for (const id of input.combatantIds) {
+      const c = combat.combatants.find((x) => x.id === id);
+      if (!c) continue;
+      // Prefer the PC's own record: a combatant added mid-fight snapshots
+      // abilities as null, and the modifier is the whole point of the hint.
+      const pc = c.type === 'pc' ? cur().pcs.find((x) => x.id === c.sourceId) : undefined;
+      const scores = (pc?.abilities ?? c.abilities) as unknown as
+        | Record<string, number>
+        | null
+        | undefined;
+      const score = scores ? scores[key] : undefined;
+      targets.push({
+        combatantId: c.id,
+        name: monsterName(lang, c.displayName),
+        type: c.type,
+        pcId: c.type === 'pc' ? c.sourceId : null,
+        mod: typeof score === 'number' ? abilityMod(score) : null,
+        awaiting: null,
+        result: null,
+      });
+    }
+    if (targets.length === 0) return null;
+    const req: DemoSaveRequest = { id: uuid(), ...input, targets };
+    saveRequests.set(req.id, req);
+    if (input.onResolved) saveFinishers.set(req.id, input.onResolved);
+    // A DM pickup is answered by the DM; do not light up a phone for it.
+    if (req.pickedUpBy !== 'dm') {
+      for (const t of req.targets) {
+        if (t.pcId) t.awaiting = promptPhoneForThrow(req, t);
+      }
+    }
+    announceRequest(req);
+    return req;
+  }
+
+  function promptPhoneForThrow(req: DemoSaveRequest, target: DemoThrowTarget): string | null {
+    const session = [...playerSessions].find((x) => x.pcId === target.pcId);
+    if (!session) return null;
+    const prompt = { id: uuid(), requestId: req.id, combatantId: target.combatantId, session };
+    phonePrompts.set(prompt.id, prompt);
+    session.onMessage(
       JSON.stringify({
-        type: 'concSaveResult',
-        id: pending.id,
-        die,
-        total,
-        dc: pending.dc,
-        saved,
-        spellName: pending.spellName,
-        deName: pending.deName,
+        type: 'throwPrompt',
+        id: prompt.id,
+        kind: req.kind,
+        attackName: req.attackName,
+        attackerName: req.attackerName,
+        spellName: req.spellName,
+        ability: req.ability,
+        dc: req.dc,
+        damage: req.damage,
+        mod: target.mod,
       }),
     );
-    const lang = data.settings.language;
-    const label = `${translate(lang, 'spellbook.concentration')} (${
-      lang === 'de' && pending.deName ? pending.deName : pending.spellName
-    })`;
-    const pc = cur().pcs.find((p) => p.id === pending.pcId);
-    const commit = (): void => {
-      const combat = cur().combat;
-      if (combat) {
-        pushLog(combat, {
-          kind: 'save',
-          actorName: pc?.name ?? '?',
-          actorType: 'pc',
-          attackName: label,
-          die: die ?? undefined,
-          total,
-          dc: pending.dc,
-          ability: 'CON',
-          outcome: saved ? 'saved' : 'failed',
-          source: 'player',
-          sourceName: sourceNameFor(pending.pcId),
-        });
-        if (!saved) {
-          const c = combat.combatants.find((x) => x.id === pending.combatantId);
-          if (c) c.concentration = null;
-        }
+    return sourceNameFor(target.pcId ?? '') ?? 'phone';
+  }
+
+  function cancelPhonePrompt(requestId: string, combatantId: string | null): void {
+    for (const [id, prompt] of [...phonePrompts]) {
+      if (prompt.requestId !== requestId) continue;
+      if (combatantId !== null && prompt.combatantId !== combatantId) continue;
+      phonePrompts.delete(id);
+      prompt.session.onMessage(JSON.stringify({ type: 'throwResult', id, cancelled: true }));
+    }
+  }
+
+  function resolveThrow(
+    requestId: string,
+    combatantId: string,
+    result: DemoThrowResult,
+    revealMs = 0,
+  ): boolean {
+    const req = saveRequests.get(requestId);
+    if (!req) return false;
+    const target = req.targets.find((t) => t.combatantId === combatantId);
+    if (!target || target.result) return false;
+    target.result = result;
+    target.awaiting = null;
+    cancelPhonePrompt(requestId, combatantId);
+    clearDeferredCards(requestId, combatantId);
+    announceRequest(req);
+    if (req.targets.every((t) => t.result)) {
+      const done = saveFinishers.get(requestId);
+      closeSaveRequest(requestId);
+      if (done) {
+        if (revealMs > 0) setTimeout(() => done(req), revealMs);
+        else done(req);
       }
+    }
+    return true;
+  }
+
+  function closeSaveRequest(requestId: string): void {
+    if (!saveRequests.has(requestId)) return;
+    saveRequests.delete(requestId);
+    saveFinishers.delete(requestId);
+    parkedRequests.delete(requestId);
+    cancelPhonePrompt(requestId, null);
+    for (const cb of saveReqClosedListeners) cb(requestId);
+  }
+
+  /** Drop deferred cards for a request — all, or just one target's. */
+  function clearDeferredCards(requestId: string, combatantId: string | null): void {
+    const combat = cur().combat;
+    if (!combat) return;
+    let removed = false;
+    for (const e of [...combat.log]) {
+      if (e.kind !== 'saveDeferred' || e.requestId !== requestId) continue;
+      if (combatantId !== null && e.combatantId !== combatantId) continue;
+      if (applyLogEntryDelete(combat, e.id)) removed = true;
+    }
+    if (removed) {
+      combat.log = [...combat.log];
       save();
-    };
-    if (revealMs > 0) setTimeout(commit, revealMs);
-    else commit();
+    }
+  }
+
+  /**
+   * Mirror of saveRequests.ts: a deferred throw comes back for whoever picked
+   * it up, and only them. The DM taking a card gets every row still owed; a
+   * player taking their own leaves everyone else's screen alone.
+   */
+  function resumeSaveRequest(
+    requestId: string,
+    by: { surface: 'dm' } | { surface: 'phone'; pcId: string },
+  ): DemoSaveRequest | null {
+    const req = parkedRequests.get(requestId) ?? saveRequests.get(requestId);
+    if (!req) return null;
+    parkedRequests.delete(requestId);
+    saveRequests.set(requestId, req);
+    req.pickedUpBy = by.surface;
+    if (by.surface === 'dm') {
+      clearDeferredCards(requestId, null);
+      announceRequest(req);
+      return req;
+    }
+    const own = req.targets.find((t) => t.pcId === by.pcId && !t.result);
+    if (!own) return null;
+    clearDeferredCards(requestId, own.combatantId);
+    own.awaiting = promptPhoneForThrow(req, own);
+    return req;
+  }
+
+  /** Dismiss: file each unanswered row as a card that can still be thrown. */
+  function deferSaveRequest(requestId: string): void {
+    const req = saveRequests.get(requestId);
+    if (!req) return;
+    const owed = req.targets.filter((t) => !t.result);
+    // Park rather than close: closing drops the finisher, and with it the
+    // damage or the spell this throw was going to decide.
+    saveRequests.delete(requestId);
+    parkedRequests.set(requestId, req);
+    cancelPhonePrompt(requestId, null);
+    for (const cb of saveReqClosedListeners) cb(requestId);
+    const combat = cur().combat;
+    if (!combat) return;
+    for (const t of owed) fileDeferredCard(req, t, requestId);
+    save();
+  }
+
+  function fileDeferredCard(
+    req: DemoSaveRequest,
+    t: DemoThrowTarget,
+    requestId: string,
+  ): void {
+    const combat = cur().combat;
+    if (!combat) return;
+    pushLog(combat, {
+      kind: 'saveDeferred',
+      actorName: t.name,
+      actorType: t.type,
+      attackName: req.attackName,
+      ability: req.ability,
+      dc: req.dc,
+      amount: req.damage,
+      combatantId: t.combatantId,
+      requestId,
+      conc: req.kind === 'concentration',
+      source: 'dm',
+    });
+  }
+
+  /**
+   * Mirror of saveRequests.ts: one player stepped away from their own row.
+   * Everyone else's throw stays exactly where it was.
+   */
+  function deferTarget(requestId: string, combatantId: string): void {
+    const req = saveRequests.get(requestId);
+    if (!req) return;
+    const target = req.targets.find((t) => t.combatantId === combatantId && !t.result);
+    if (!target) return;
+    target.awaiting = null;
+    cancelPhonePrompt(requestId, combatantId);
+    fileDeferredCard(req, target, requestId);
+    save();
+    if (req.pickedUpBy === 'phone') {
+      saveRequests.delete(requestId);
+      parkedRequests.set(requestId, req);
+      for (const cb of saveReqClosedListeners) cb(requestId);
+      return;
+    }
+    announceRequest(req);
+  }
+
+  function reopenDeferredThrow(
+    entry: LogEntry,
+    by: { surface: 'dm' } | { surface: 'phone'; pcId: string },
+  ): boolean {
+    // The parked original first: it still carries what the throw decides.
+    if (entry.requestId && resumeSaveRequest(entry.requestId, by)) return true;
+    if (!entry.combatantId || !entry.ability || entry.dc === undefined) return false;
+    const combatantId = entry.combatantId;
+    const isConc = entry.conc === true;
+    return (
+      openSaveRequest({
+        // Rebuilt rather than resumed, but still a pickup.
+        pickedUpBy: by.surface,
+        kind: isConc ? 'concentration' : 'save',
+        ability: entry.ability,
+        dc: entry.dc,
+        attackName: entry.attackName ?? '',
+        spellName: isConc ? entry.attackName : undefined,
+        damage: entry.amount,
+        combatantIds: [combatantId],
+        onResolved: isConc ? (r) => applyConcentration(r, combatantId) : undefined,
+      }) !== null
+    );
+  }
+
+  /** Concentration's consequence: log the throw, drop the spell on a failure. */
+  function applyConcentration(req: DemoSaveRequest, combatantId: string): void {
+    const target = req.targets[0];
+    const combat = cur().combat;
+    if (!target?.result || !combat) return;
+    const saved = target.result.total >= req.dc;
+    pushLog(combat, {
+      kind: 'save',
+      actorName: target.name,
+      actorType: 'pc',
+      attackName: `${translate(data.settings.language, 'spellbook.concentration')} (${
+        req.spellName ?? req.attackName
+      })`,
+      die: target.result.die ?? undefined,
+      total: target.result.total,
+      dc: req.dc,
+      ability: 'CON',
+      outcome: saved ? 'saved' : 'failed',
+      source: target.result.by === 'dm' ? 'dm' : 'player',
+      sourceName: target.result.by === 'dm' ? undefined : target.result.by,
+    });
+    if (!saved) {
+      const c = combat.combatants.find((x) => x.id === combatantId);
+      if (c) c.concentration = null;
+    }
+    save();
   }
 
   function tokenPcId(token: string | null): string | null {
@@ -1264,15 +1510,20 @@ export function createDemoApi(): Api {
     return null;
   }
 
-  function filterLogForPlayers(log: LogEntry[]): LogEntry[] {
+  function filterLogForPlayers(log: LogEntry[], viewerCombatantId: string | null): LogEntry[] {
     // Mirror of playerServer.ts: no breakdown, always the composition.
-    return log.map((e) => {
-      if (e.kind === 'attackRoll') {
-        return { ...e, die: undefined, dice: undefined, total: undefined, math: attackComposition(e) };
+    return log.flatMap<LogEntry>((e) => {
+      // A deferred throw is addressed to one character: its owner sees it, the
+      // rest of the table does not.
+      if (e.kind === 'saveDeferred') {
+        return e.combatantId && e.combatantId === viewerCombatantId ? [e] : [];
       }
-      if (e.kind === 'save') return { ...e, die: undefined, dice: undefined };
-      if (e.math === undefined) return e;
-      return { ...e, die: undefined, dice: undefined, math: stripDiceResults(e.math) };
+      if (e.kind === 'attackRoll') {
+        return [{ ...e, die: undefined, dice: undefined, total: undefined, math: attackComposition(e) }];
+      }
+      if (e.kind === 'save') return [{ ...e, die: undefined, dice: undefined }];
+      if (e.math === undefined) return [e];
+      return [{ ...e, die: undefined, dice: undefined, math: stripDiceResults(e.math) }];
     });
   }
 
@@ -1344,7 +1595,7 @@ export function createDemoApi(): Api {
           }
         : null,
       combatants,
-      log: active ? filterLogForPlayers(combat.log).slice(-200) : [],
+      log: active ? filterLogForPlayers(combat.log, ownCombatant?.id ?? null).slice(-200) : [],
       archive: cur().archive.map((a) => ({
         id: a.id,
         templateName: a.templateName,
@@ -1672,18 +1923,28 @@ export function createDemoApi(): Api {
           math: savedManual ? undefined : rolledSave.math,
           mathTypes: savedManual ? undefined : rolledSave.mathTypes,
         });
-        for (const cb of savePendingListeners) {
-          cb({
-            id: pending.id,
-            actorName: pending.actorName,
-            attackName: pending.attackName,
-            ability: pending.ability,
-            dc: action.save?.dc ?? 10,
-            damage: pending.damage,
-            onSuccess: action.save?.onSuccess ?? 'half',
-            targetIds: pending.targetIds,
-          });
-        }
+        // Mirror of playerServer.ts: the DM adjudicates through the same
+        // request every other throw uses, so phones roll their own and putting
+        // it off leaves a card in the log.
+        const dc = action.save?.dc ?? 10;
+        openSaveRequest({
+          kind: 'save',
+          ability: pending.ability,
+          dc,
+          attackName: pending.attackName,
+          attackerName: pending.actorName,
+          combatantIds: pending.targetIds,
+          onResolved: (req) =>
+            resolvePlayerSave(
+              pending.id,
+              req.targets.map((t) => ({
+                targetId: t.combatantId,
+                saved: (t.result?.total ?? 0) >= req.dc,
+                total: t.result?.total,
+                die: t.result?.die ?? undefined,
+              })),
+            ),
+        });
         return;
       }
       const combat = cur().combat;
@@ -1826,19 +2087,55 @@ export function createDemoApi(): Api {
       return;
     }
 
-    if (type === 'concSaveDigital') {
-      const pending = typeof cmd.id === 'string' ? concSaves.get(cmd.id) : undefined;
-      if (!pending || pending.session !== session) return;
-      const die = 1 + Math.floor(Math.random() * 20);
-      // Digital only: the phone tumbles, so hold the table-visible half back.
-      resolveConcSave(pending, die, die + (pending.conMod ?? 0), 3600);
+    if (type === 'throwRetry') {
+      // Mirror of playerServer.ts: only the character who owes it may ask.
+      const combat = cur().combat;
+      const entry = combat?.log.find((e) => e.id === cmd.entryId);
+      if (!combat || !entry || entry.kind !== 'saveDeferred' || !entry.combatantId) return;
+      const target = combat.combatants.find((c) => c.id === entry.combatantId);
+      if (!target || target.type !== 'pc' || target.sourceId !== session.pcId) return;
+      // Picked up by this player: the prompt lands on their phone only.
+      if (reopenDeferredThrow(entry, { surface: 'phone', pcId: session.pcId! })) {
+        if (applyLogEntryDelete(combat, entry.id)) combat.log = [...combat.log];
+        save();
+      }
       return;
     }
 
-    if (type === 'concSaveManual') {
-      const pending = typeof cmd.id === 'string' ? concSaves.get(cmd.id) : undefined;
-      if (!pending || pending.session !== session || typeof cmd.total !== 'number') return;
-      resolveConcSave(pending, null, Math.floor(cmd.total));
+    if (type === 'throwDefer') {
+      const prompt = typeof cmd.id === 'string' ? phonePrompts.get(cmd.id) : undefined;
+      if (!prompt || prompt.session !== session) return;
+      // Leave it registered: cancelPhonePrompt is what closes the phone.
+      deferTarget(prompt.requestId, prompt.combatantId);
+      return;
+    }
+
+    if (type === 'throwDigital' || type === 'throwManual') {
+      const prompt = typeof cmd.id === 'string' ? phonePrompts.get(cmd.id) : undefined;
+      if (!prompt || prompt.session !== session) return;
+      const req = saveRequests.get(prompt.requestId);
+      const target = req?.targets.find((t) => t.combatantId === prompt.combatantId);
+      if (!req || !target) return;
+      const digital = type === 'throwDigital';
+      if (!digital && typeof cmd.total !== 'number') return;
+      const die = digital ? 1 + Math.floor(Math.random() * 20) : null;
+      const total = digital ? (die as number) + (target.mod ?? 0) : Math.floor(cmd.total as number);
+      phonePrompts.delete(prompt.id);
+      sendTo({
+        type: 'throwResult',
+        id: prompt.id,
+        die,
+        total,
+        dc: req.dc,
+        saved: total >= req.dc,
+      });
+      // Digital only: the phone tumbles, so hold the table-visible half back.
+      resolveThrow(
+        req.id,
+        target.combatantId,
+        { die, total, by: sourceNameFor(session.pcId ?? '') ?? 'phone' },
+        digital ? 3600 : 0,
+      );
       return;
     }
 
@@ -2296,6 +2593,24 @@ export function createDemoApi(): Api {
     kenkuStopAll: async () => demoKenkuStopAll(),
     kenkuSoundPlayback: async () => demoKenkuPlayback(),
     kenkuCheckConnection: async () => true,
+    // ---- saving throws owed (mirror of the preload's saveRequest block) ----
+    openSaveRequest: async (input) => openSaveRequest(input as DemoSaveRequestInput) as never,
+    getSaveRequest: async (id) => (saveRequests.get(id) ?? null) as never,
+    resolveSaveThrow: async (id, combatantId, result) =>
+      resolveThrow(id, combatantId, result as DemoThrowResult),
+    closeSaveRequest: async (id) => closeSaveRequest(id),
+    deferSaveRequest: async (id) => deferSaveRequest(id),
+    reopenDeferredThrow: async (entry) => reopenDeferredThrow(entry, { surface: 'dm' }),
+    onSaveRequest: (cb) => {
+      const wrapped = (req: DemoSaveRequest) => cb(req as never);
+      saveReqListeners.add(wrapped);
+      return () => saveReqListeners.delete(wrapped);
+    },
+    onSaveRequestClosed: (cb) => {
+      saveReqClosedListeners.add(cb);
+      return () => saveReqClosedListeners.delete(cb);
+    },
+
     kenkuAttackEvent: async (payload) => {
       kenkuAttackEvent(payload);
       logAttackRoll(payload, 'dm');

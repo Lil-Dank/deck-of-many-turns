@@ -1,11 +1,12 @@
 import { useEffect, useState } from 'react';
 import type { AppState, Combatant, MonsterAction } from '../../shared/types';
-import { abilityMod } from '../../shared/types';
 import { rollD20, rollPool, type RollMode } from '../../shared/dice';
 import { api } from './api';
 import { spellActionName, spellActionText } from '../../shared/spellAction';
 import { DmgText } from './DmgText';
 import { useI18n } from './i18n';
+import { SaveThrowRows } from './SaveThrowRows';
+import type { SaveRequest } from '../../main/saveRequests';
 
 /**
  * DM-side Monster Attack workflow, mirroring the Stream Deck flow:
@@ -67,9 +68,12 @@ export function MonsterAttackModal({
   const [targets, setTargets] = useState<string[]>([]);
   const [atkRoll, setAtkRoll] = useState<AtkRoll | null>(null);
   const [dmgRoll, setDmgRoll] = useState<DmgRoll | null>(null);
-  /** One row per target on the saves step: the entered total and, when the
-   *  app rolled it, the d20 behind it. */
-  const [saveRows, setSaveRows] = useState<Record<string, { total: string; die: number | null }>>({});
+  /**
+   * The saves step is a save request like every other throw in the app, so a
+   * target whose player is on a connected phone gets prompted to roll their own
+   * while the DM adjudicates the rest.
+   */
+  const [saveReq, setSaveReq] = useState<SaveRequest | null>(null);
   const [slotLevel, setSlotLevel] = useState<number | null>(null);
   const [castErr, setCastErr] = useState(false);
 
@@ -78,6 +82,24 @@ export function MonsterAttackModal({
     if (!attacker) onClose();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [attacker]);
+
+  // Rows fill in from whichever surface answered them — this window, or a
+  // player's phone.
+  useEffect(() => {
+    const off = api.onSaveRequest((req) => setSaveReq((cur) => (cur?.id === req.id ? req : cur)));
+    // Deliberately NOT listening for the close: the registry retires a request
+    // the moment its last row is answered, which is before the DM has pressed
+    // Apply. Dropping the rows there left this step with nothing to read, so it
+    // applied full damage to everyone. The snapshot is kept until Apply or Back
+    // clears it.
+    return off;
+  }, []);
+
+  /** Abandoning the flow must not leave the throw hanging on someone's phone. */
+  const dropSaveRequest = () => {
+    if (saveReq) void api.closeSaveRequest(saveReq.id);
+    setSaveReq(null);
+  };
 
   if (!combat || !attacker) return null;
 
@@ -104,7 +126,7 @@ export function MonsterAttackModal({
     setTargets([]);
     setAtkRoll(null);
     setDmgRoll(null);
-    setSaveRows({});
+    dropSaveRequest();
     setSlotLevel(null);
     setCastErr(false);
     if (a.spell && pcRecord) {
@@ -218,7 +240,6 @@ export function MonsterAttackModal({
       parts.push(`${roll.total} ${dmg(attack.onHit.damage[0]?.type ?? 'variable')}`);
     }
     setDmgRoll({ total, parts, conditional, math: `${mathParts.join(' + ')} = ${total}`, mathTypes });
-    setSaveRows({});
     if (attacker) {
       void api.kenkuAttackEvent({ sourceId: attacker.sourceId, attackId: attack.id, phase: 'damageRoll' });
     }
@@ -242,8 +263,8 @@ export function MonsterAttackModal({
       // builder pairs a save with the damage that follows it, so logging all
       // the saves up front would split every target across two cards.
       const target = targetObjs.find((c) => c.id === id);
-      const total = savedTotal(id);
-      if (isSave && attack?.save && target && total !== null) {
+      const row = saveReq?.targets.find((t) => t.combatantId === id);
+      if (isSave && attack?.save && target && row?.result) {
         await api.logSaveRoll({
           actorName: mon(target.displayName),
           actorType: target.type,
@@ -252,8 +273,8 @@ export function MonsterAttackModal({
           attackName: actName(attack),
           ability: attack.save.ability,
           dc: attack.save.dc,
-          die: saveRows[id]?.die ?? undefined,
-          total,
+          die: row.result.die ?? undefined,
+          total: row.result.total,
           saved: halved,
         });
       }
@@ -268,6 +289,7 @@ export function MonsterAttackModal({
     if (attacker && attack) {
       void api.kenkuAttackEvent({ sourceId: attacker.sourceId, attackId: attack.id, phase: 'damageApplied' });
     }
+    if (saveReq) void api.closeSaveRequest(saveReq.id);
     onClose();
   };
 
@@ -276,42 +298,48 @@ export function MonsterAttackModal({
   // ---- saving throws (mirrors PlayerSaveModal, which adjudicates the same
   // action when a phone launches it) ------------------------------------------
 
-  /** The target's modifier for this action's save ability; null if unknown. */
-  const saveBonus = (c: Combatant): number | null => {
-    const ability = attack?.save?.ability;
-    if (!ability || !c.abilities) return null;
-    const score = (c.abilities as unknown as Record<string, number>)[ability.toLowerCase().slice(0, 3)];
-    return typeof score === 'number' ? abilityMod(score) : null;
+  /** Open the request the saves step is a view of. */
+  const beginSaves = async () => {
+    if (!attack?.save || !attacker) return;
+    const req = await api.openSaveRequest({
+      kind: 'save',
+      ability: attack.save.ability,
+      dc: attack.save.dc,
+      attackName: actName(attack),
+      attackerName: mon(attacker.displayName),
+      combatantIds: targets,
+    });
+    setSaveReq(req);
+    setStep('saves');
   };
 
-  const rollSave = (id: string, bonus: number | null) => {
-    const die = Math.floor(Math.random() * 20) + 1;
-    setSaveRows((r) => ({ ...r, [id]: { die, total: String(die + (bonus ?? 0)) } }));
+  const answerSave = (combatantId: string, die: number | null, total: number) => {
+    if (saveReq) void api.resolveSaveThrow(saveReq.id, combatantId, { die, total, by: 'dm' });
   };
 
+  /** Roll every row nobody has answered yet; a player's own throw is left be. */
   const rollAllSaves = () => {
-    setSaveRows(
-      Object.fromEntries(
-        targetObjs.map((c) => {
-          const die = Math.floor(Math.random() * 20) + 1;
-          return [c.id, { die, total: String(die + (saveBonus(c) ?? 0)) }];
-        }),
-      ),
-    );
+    for (const t of saveReq?.targets ?? []) {
+      if (t.result) continue;
+      const die = Math.floor(Math.random() * 20) + 1;
+      answerSave(t.combatantId, die, die + (t.mod ?? 0));
+    }
   };
 
-  const savedTotal = (id: string): number | null => {
-    const n = parseInt(saveRows[id]?.total ?? '', 10);
-    return Number.isFinite(n) ? n : null;
-  };
+  const savedTotal = (id: string): number | null =>
+    saveReq?.targets.find((t) => t.combatantId === id)?.result?.total ?? null;
 
+  // The request owns the DC once it is open — reading it off the action here
+  // instead is how the row and the Apply count came to disagree.
   const didSave = (id: string): boolean => {
     const total = savedTotal(id);
-    return total !== null && attack?.save != null && total >= attack.save.dc;
+    return total !== null && saveReq != null && total >= saveReq.dc;
   };
 
-  const allSavesEntered = targetObjs.every((c) => savedTotal(c.id) !== null);
-  const savedCount = targetObjs.filter((c) => didSave(c.id)).length;
+  // Guard the request itself: [].every() is vacuously true, which would enable
+  // Apply with no rows at all.
+  const allSavesEntered = !!saveReq && saveReq.targets.every((t) => t.result);
+  const savedCount = (saveReq?.targets ?? []).filter((t) => didSave(t.combatantId)).length;
 
   return (
     <div className="modal-backdrop" onClick={onClose}>
@@ -507,7 +535,7 @@ export function MonsterAttackModal({
                 <button
                   className={`btn ${isHeal ? 'primary' : 'danger'}`}
                   onClick={() => {
-                    if (isSave) setStep('saves');
+                    if (isSave) void beginSaves();
                     else void apply();
                   }}
                 >
@@ -535,49 +563,17 @@ export function MonsterAttackModal({
                   : t('attack.savedTakeHalf', { half: Math.floor(dmgRoll.total / 2), full: dmgRoll.total })}
               </span>
             </h3>
-            <table className="pw-save-table">
-              <tbody>
-                {targetObjs.map((c) => {
-                  const bonus = saveBonus(c);
-                  const total = savedTotal(c.id);
-                  const ok = total !== null && total >= attack.save!.dc;
-                  return (
-                    <tr key={c.id}>
-                      <td>{targetName(c)}</td>
-                      <td>
-                        <button className="btn small" onClick={() => rollSave(c.id, bonus)}>
-                          🎲 {bonus !== null && (bonus >= 0 ? `+${bonus}` : bonus)}
-                        </button>
-                      </td>
-                      <td>
-                        <input
-                          type="number"
-                          className="pw-save-input"
-                          value={saveRows[c.id]?.total ?? ''}
-                          onChange={(e) =>
-                            setSaveRows((r) => ({ ...r, [c.id]: { die: null, total: e.target.value } }))
-                          }
-                          placeholder="…"
-                        />
-                        {saveRows[c.id]?.die != null && (
-                          <span className="muted"> (d20: {saveRows[c.id].die})</span>
-                        )}
-                      </td>
-                      <td>
-                        {total !== null &&
-                          (ok ? (
-                            <span className="pw-online">✓ {t('pw.saveSaved')}</span>
-                          ) : (
-                            <span className="pw-error">✗ {t('pw.saveFailed')}</span>
-                          ))}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+            {saveReq && <SaveThrowRows req={saveReq} onAnswer={answerSave} />}
             <div className="modal-actions">
-              <button className="btn" onClick={() => setStep('roll')}>{t('common.back')}</button>
+              <button
+                className="btn"
+                onClick={() => {
+                  dropSaveRequest();
+                  setStep('roll');
+                }}
+              >
+                {t('common.back')}
+              </button>
               <button className="btn" onClick={rollAllSaves}>🎲 {t('attack.rollAllSaves')}</button>
               <button className="btn" onClick={onClose}>{t('common.cancel')}</button>
               <button className="btn danger" disabled={!allSavesEntered} onClick={() => void apply()}>

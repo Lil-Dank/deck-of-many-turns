@@ -12,8 +12,20 @@ import {
   resolvePendingSave,
 } from './playerServer';
 import { importSrdMonsters, importSrdSpells } from './srd';
+import { reopenDeferredThrow } from './concentration';
+import {
+  closeRequest,
+  deferRequest,
+  getSaveRequest,
+  onSaveRequestChanged,
+  onSaveRequestClosed,
+  openSaveRequest,
+  resolveThrow,
+  type SaveRequest,
+} from './saveRequests';
 import { onBridgeCommand } from './bridge';
 import {
+  flashDmWindow,
   getAllWindows,
   isPlayerViewOpen,
   togglePlayerFullscreen,
@@ -76,6 +88,18 @@ export function registerIpc(): void {
   ipcMain.handle('combat:removeCombatant', (_e, id) => store.removeCombatant(id));
   ipcMain.handle('log:edit', (_e, { id, patch }) => store.editLogEntry(id, patch));
   ipcMain.handle('log:delete', (_e, id) => store.deleteLogEntry(id));
+
+  // ---- Saving throws owed ----
+  ipcMain.handle('saveRequest:open', (_e, input) => openSaveRequest(input));
+  ipcMain.handle('saveRequest:get', (_e, id) => getSaveRequest(id) ?? null);
+  ipcMain.handle('saveRequest:resolve', (_e, { id, combatantId, result }) =>
+    resolveThrow(id, combatantId, result),
+  );
+  ipcMain.handle('saveRequest:close', (_e, id) => closeRequest(id));
+  ipcMain.handle('saveRequest:defer', (_e, id) => deferRequest(id));
+  ipcMain.handle('saveRequest:reopen', (_e, entry) =>
+    reopenDeferredThrow(entry, { surface: 'dm' }),
+  );
   ipcMain.handle('log:save', (_e, p) =>
     store.appendLog({
       kind: 'save',
@@ -162,6 +186,18 @@ export function registerIpc(): void {
     for (const win of getAllWindows()) {
       win.webContents.send('playerSavePending', pending);
     }
+  });
+
+  // A saving throw is owed. The DM window always hears about it — whether or
+  // not a phone was also asked — and the taskbar flashes when the app is not
+  // the focused window.
+  onSaveRequestChanged((req: SaveRequest) => {
+    for (const win of getAllWindows()) win.webContents.send('saveRequest', req);
+    if (req.targets.some((t) => !t.result)) flashDmWindow(true);
+  });
+  onSaveRequestClosed((id) => {
+    for (const win of getAllWindows()) win.webContents.send('saveRequestClosed', id);
+    flashDmWindow(false);
   });
 }
 

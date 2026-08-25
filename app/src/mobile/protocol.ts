@@ -190,30 +190,40 @@ export interface HealResultMsg {
 }
 
 /**
- * Your concentrating character took damage: make a DC Constitution saving
- * throw to keep the spell (digital, or roll your own and type the total).
+ * A saving throw is owed and you can answer it: roll digitally, or roll your
+ * own dice and type the total. Covers both the Constitution check that keeps a
+ * spell after damage and an ordinary save the DM or the deck aimed at you.
+ *
+ * The DM is prompted for the same throw at the same time. Whoever answers
+ * first wins; the other prompt comes down as `cancelled`.
  */
-export interface ConcSaveMsg {
-  type: 'concSave';
+export interface ThrowPromptMsg {
+  type: 'throwPrompt';
   id: string;
-  spellName: string;
-  deName: string | null;
+  kind: 'concentration' | 'save';
+  /** "Concentration (Bless)", or the action that forced the save. */
+  attackName: string;
+  attackerName?: string;
+  /** Concentration: the spell alone, so the heading does not read doubled. */
+  spellName?: string;
+  /** Ability code thrown against the DC, e.g. 'CON'. */
+  ability: string;
   dc: number;
-  damage: number;
-  /** CON modifier for the roll button and the manual hint; null = unknown. */
-  conMod: number | null;
+  /** Concentration: the damage that forced the check. */
+  damage?: number;
+  /** Modifier for the roll button and the manual hint; null = unknown. */
+  mod: number | null;
 }
 
-export interface ConcSaveResultMsg {
-  type: 'concSaveResult';
+export interface ThrowResultMsg {
+  type: 'throwResult';
   id: string;
+  /** Someone else answered first, or the fight ended. */
   cancelled?: boolean;
   die?: number | null;
   total?: number;
   dc?: number;
   saved?: boolean;
-  spellName?: string;
-  deName?: string | null;
 }
 
 export type ServerMsg =
@@ -226,8 +236,8 @@ export type ServerMsg =
   | SpellListMsg
   | CastResultMsg
   | HealResultMsg
-  | ConcSaveMsg
-  | ConcSaveResultMsg
+  | ThrowPromptMsg
+  | ThrowResultMsg
   | { type: 'claimResult'; ok: boolean; reason?: string }
   | SavePendingMsg
   | { type: 'kicked' }

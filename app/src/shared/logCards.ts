@@ -20,6 +20,7 @@ export type CardBlock =
   | { kind: 'attack'; key: string; roll: LogEntry; damage?: LogEntry }
   | { kind: 'cast'; key: string; entry: LogEntry }
   | { kind: 'save'; key: string; entry: LogEntry }
+  | { kind: 'deferred'; key: string; entry: LogEntry }
   /** `paired`: the roll math already renders on the attacker's card. */
   | { kind: 'take'; key: string; entry: LogEntry; paired?: boolean }
   | { kind: 'heal'; key: string; entry: LogEntry }
@@ -95,6 +96,7 @@ function subjectOf(e: LogEntry): CardSubject | null {
     case 'attackRoll':
     case 'cast':
     case 'save':
+    case 'saveDeferred':
       return e.actorName ? { name: e.actorName, type: e.actorType } : null;
     case 'damage':
     case 'heal':
@@ -116,6 +118,8 @@ function blockOf(e: LogEntry): CardBlock {
       return { kind: 'cast', key: e.id, entry: e };
     case 'save':
       return { kind: 'save', key: e.id, entry: e };
+    case 'saveDeferred':
+      return { kind: 'deferred', key: e.id, entry: e };
     case 'heal':
       return { kind: 'heal', key: e.id, entry: e };
     case 'conditionAdded':

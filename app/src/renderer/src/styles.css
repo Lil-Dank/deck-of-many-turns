@@ -563,6 +563,30 @@ select.campaign-select {
   scrollbar-gutter: stable;
 }
 
+/*
+ * Interrupt prompts: a saving throw the DM did not ask for, arriving mid-
+ * something-else. Much darker ground than a normal modal and a blur behind it,
+ * because the fight waits on this one. Sits above the confirm dialog's
+ * backdrop (z-index 50) on purpose — a concentration check outranks a
+ * confirmation.
+ */
+.modal-backdrop.urgent {
+  background: rgba(0, 0, 0, 0.86);
+  backdrop-filter: blur(3px);
+  z-index: 60;
+}
+
+.modal.urgent {
+  border: 1px solid var(--accent);
+  box-shadow: 0 0 0 1px color-mix(in oklab, var(--accent) 35%, transparent),
+    0 18px 60px rgba(0, 0, 0, 0.6);
+}
+
+/* An answered row is a record, not a control: it reads back, it does not invite. */
+.pw-save-table tr.answered td {
+  opacity: 0.82;
+}
+
 .modal.wide {
   width: 720px;
 }
