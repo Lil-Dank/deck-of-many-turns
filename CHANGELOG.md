@@ -7,6 +7,32 @@ to its GitHub release, where the installer and the packed plugin are attached.
 
 ## [Unreleased]
 
+### Added
+
+- **Custom resources.** Every PC can carry named point pools — Ki, sorcery
+  points, Channel Divinity, any homebrew counter — defined in the DM's Party
+  editor or by the player on their phone (More → Resources). They show as
+  always-visible chips above the phone's action bar and spend with a tap;
+  after an attack or cast, both the phone and the DM's attack modal offer a
+  skippable "spend a resource?" step. Long rest refills them.
+- **A More menu on the phone.** "My attacks…" becomes *More*: Spellbook, My
+  Attacks, Past combats and Resources as thumb-sized rows, with room for what
+  comes next. The idle character card leads with Spellbook.
+- **A sticky self strip.** During combat your HP, AC, ability modifiers and
+  resource chips stay pinned above the action bar; tapping unfolds the full
+  block (scores, notes, spell slots).
+
+### Changed
+
+- The phone's name/round header and turn banner are sticky while the
+  initiative list scrolls.
+
+### Fixed
+
+- The initiative list no longer peeks through a slit between the log bar and
+  the action bar — the bottom elements are one block now, and the page's
+  scroll end follows its measured height.
+
 ## [3.6.0] — 2026-08-21
 
 ### Added

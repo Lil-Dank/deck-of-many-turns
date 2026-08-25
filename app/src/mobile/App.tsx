@@ -20,7 +20,7 @@ import {
   rollMathSegments,
 } from '../shared/logText';
 import type { LogEntry, MonsterAction, SpellSlots } from '../shared/types';
-import { ABILITY_KEYS, abilityMod } from '../shared/types';
+import { ABILITY_KEYS, abilityMod, type PcResource } from '../shared/types';
 import { formToAction, actionToForm, emptyAction, ABILITIES, type ActionForm } from '../renderer/src/actionForm';
 import { spellToAction, spellActionName, spellActionText } from '../shared/spellAction';
 import type {
@@ -50,6 +50,8 @@ type View =
   | { id: 'attack' }
   | { id: 'myAttacks' }
   | { id: 'more' }
+  | { id: 'resources' }
+  | { id: 'spend' }
   | { id: 'spellbook' }
   | { id: 'log' }
   | { id: 'archive' };
@@ -242,7 +244,7 @@ export function App() {
                 />
               )}
               <div className="bottom-dock" ref={dockRef}>
-                {state.combatActive && <YouStrip state={state} t={t} lang={lang} />}
+                {state.combatActive && <YouStrip state={state} t={t} lang={lang} send={send} />}
                 <LogPeek state={state} lang={lang} onOpen={() => setView({ id: 'log' })} />
                 <nav className="action-bar">
                 <button
@@ -292,7 +294,31 @@ export function App() {
                   <Icon name="archive" size={22} />
                   {t('mob.archive')}
                 </button>
+                <button className="more-item" onClick={() => setView({ id: 'resources' })}>
+                  <Icon name="equalizer" size={22} />
+                  {t('res.title')}
+                </button>
               </div>
+            </Sheet>
+          )}
+
+          {view.id === 'resources' && (
+            <ResourceEditor
+              key={you.pcId}
+              state={state}
+              t={t}
+              send={send}
+              onClose={() => setView({ id: 'more' })}
+            />
+          )}
+
+          {view.id === 'spend' && (
+            <Sheet title={t('res.spendTitle')} onClose={() => setView({ id: 'home' })} t={t} noBack>
+              <p className="muted conc-info">{t('res.spendInfo')}</p>
+              <ResourceRows resources={you.resources} send={send} />
+              <button className="big primary" onClick={() => setView({ id: 'home' })}>
+                {t('res.done')}
+              </button>
             </Sheet>
           )}
 
@@ -327,13 +353,20 @@ export function App() {
               waiting={waitingSave}
               clearResult={() => setAttackMsg(null)}
               onClose={() => {
+                // Anything actually rolled? Then offer the resource prompt on
+                // the way out — backing out of an unstarted flow never asks.
+                const acted = !!(attackMsg || atkRollMsg || dmgMsg || healMsg || savePendingMsg);
                 setAttackMsg(null);
                 setAtkRollMsg(null);
                 setDmgMsg(null);
                 setSavePendingMsg(null);
                 setHealMsg(null);
                 setWaitingSave(false);
-                setView({ id: 'home' });
+                setView(
+                  acted && (state.you?.resources.length ?? 0) > 0
+                    ? { id: 'spend' }
+                    : { id: 'home' },
+                );
               }}
             />
           )}
@@ -633,6 +666,149 @@ function ClaimScreen({
   );
 }
 
+// ---- custom resources ---------------------------------------------------------
+
+/** Dots when small enough to read as dots, digits otherwise. */
+function resPips(r: PcResource): string {
+  return r.max <= 6 ? '●'.repeat(r.current) + '○'.repeat(r.max - r.current) : `${r.current}/${r.max}`;
+}
+
+/**
+ * One row per pool with −/+ steppers, shared by the unfolded strip, the idle
+ * card and the after-action prompt. Adjustments go through the server, so
+ * every surface — including the DM's Party screen — sees the same count.
+ */
+function ResourceRows({
+  resources,
+  send,
+}: {
+  resources: PcResource[];
+  send: (m: Record<string, unknown>) => void;
+}) {
+  if (resources.length === 0) return null;
+  return (
+    <div className="res-rows">
+      {resources.map((r) => (
+        <div key={r.id} className="res-row">
+          <span className="res-name">{r.name}</span>
+          <span className="res-pips tnum">{resPips(r)}</span>
+          <button
+            className="res-step"
+            disabled={r.current <= 0}
+            onClick={() => send({ type: 'resourceAdjust', resourceId: r.id, delta: -1 })}
+          >
+            −
+          </button>
+          <button
+            className="res-step"
+            disabled={r.current >= r.max}
+            onClick={() => send({ type: 'resourceAdjust', resourceId: r.id, delta: 1 })}
+          >
+            +
+          </button>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/**
+ * Player-side pool editor (name + max). A local draft, so incoming state
+ * pushes never clobber typing; every save/delete goes to the server and the
+ * DM's Party screen sees it live. Current counts are adjusted elsewhere —
+ * this screen shapes the pools, it doesn't spend them.
+ */
+function ResourceEditor({
+  state,
+  t,
+  send,
+  onClose,
+}: {
+  state: StateMsg;
+  t: (k: string, p?: Record<string, string | number>) => string;
+  send: (m: Record<string, unknown>) => void;
+  onClose: () => void;
+}) {
+  const you = state.you!;
+  const [drafts, setDrafts] = useState(() =>
+    you.resources.map((r) => ({ id: r.id, name: r.name, max: String(r.max) })),
+  );
+  const [newName, setNewName] = useState('');
+  const [newMax, setNewMax] = useState('1');
+
+  const saveRow = (d: { id: string; name: string; max: string }) => {
+    if (!d.name.trim()) return;
+    send({ type: 'resourceSave', resourceId: d.id, name: d.name, max: parseInt(d.max, 10) || 1 });
+  };
+
+  return (
+    <Sheet title={t('res.title')} onClose={onClose} t={t}>
+      <p className="muted conc-info">{t('res.editorInfo')}</p>
+      <div className="res-editor">
+        {drafts.map((d, i) => (
+          <div key={d.id} className="res-edit-row">
+            <input
+              type="text"
+              value={d.name}
+              placeholder={t('common.name')}
+              onChange={(e) =>
+                setDrafts((ds) => ds.map((x, j) => (j === i ? { ...x, name: e.target.value } : x)))
+              }
+              onBlur={() => saveRow(drafts[i])}
+            />
+            <input
+              type="number"
+              inputMode="numeric"
+              value={d.max}
+              onChange={(e) =>
+                setDrafts((ds) => ds.map((x, j) => (j === i ? { ...x, max: e.target.value } : x)))
+              }
+              onBlur={() => saveRow(drafts[i])}
+            />
+            <button
+              className="res-del"
+              onClick={() => {
+                setDrafts((ds) => ds.filter((_, j) => j !== i));
+                send({ type: 'resourceDelete', resourceId: d.id });
+              }}
+            >
+              ✕
+            </button>
+          </div>
+        ))}
+        <div className="res-edit-row res-new">
+          <input
+            type="text"
+            value={newName}
+            placeholder={t('common.name')}
+            onChange={(e) => setNewName(e.target.value)}
+          />
+          <input
+            type="number"
+            inputMode="numeric"
+            value={newMax}
+            onChange={(e) => setNewMax(e.target.value)}
+          />
+          <button
+            className="res-add"
+            disabled={!newName.trim()}
+            onClick={() => {
+              const name = newName.trim();
+              const max = parseInt(newMax, 10) || 1;
+              send({ type: 'resourceSave', name, max });
+              setDrafts((ds) => [...ds, { id: `pending-${Date.now()}`, name, max: String(max) }]);
+              setNewName('');
+              setNewMax('1');
+            }}
+          >
+            + {t('res.add')}
+          </button>
+        </div>
+      </div>
+    </Sheet>
+  );
+}
+
 // ---- sticky self strip (during combat) ---------------------------------------
 
 /**
@@ -644,10 +820,12 @@ function YouStrip({
   state,
   t,
   lang,
+  send,
 }: {
   state: StateMsg;
   t: (k: string, p?: Record<string, string | number>) => string;
   lang: Lang;
+  send: (m: Record<string, unknown>) => void;
 }) {
   const you = state.you!;
   const me = state.combatants.find((c) => c.id === you.combatantId) ?? null;
@@ -672,6 +850,7 @@ function YouStrip({
           )}
           {you.notes && <div className="you-notes card-notes">{you.notes}</div>}
           <PhoneSlotPips slots={you.spellSlots} />
+          <ResourceRows resources={you.resources} send={send} />
         </div>
       )}
       <button className="you-strip tnum" onClick={() => setOpen((o) => !o)}>
@@ -690,6 +869,15 @@ function YouStrip({
         )}
         <span className="ys-chev">{open ? '▾' : '▴'}</span>
       </button>
+      {you.resources.length > 0 && (
+        <button className="ys-res tnum" onClick={() => setOpen(true)}>
+          {you.resources.map((r) => (
+            <span key={r.id} className="ys-chip">
+              {r.name} {resPips(r)}
+            </span>
+          ))}
+        </button>
+      )}
     </>
   );
 }
@@ -770,6 +958,7 @@ function CharacterCard({
       )}
       {you.notes && <div className="you-notes card-notes">{you.notes}</div>}
       <PhoneSlotPips slots={you.spellSlots} />
+      <ResourceRows resources={you.resources} send={send} />
       <div className="card-actions">
         <button className="big primary" onClick={onSpellbook}>
           <Icon name="book" size={18} />

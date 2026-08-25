@@ -689,9 +689,22 @@ export function createDemoApi(): Api {
 
   function longRestInner(pcId: string): void {
     const pc = cur().pcs.find((p) => p.id === pcId);
-    const slots = normalizeSlots(pc?.spellSlots);
-    if (!pc || !slots) return;
-    pc.spellSlots = { ...slots, current: [...slots.max] };
+    if (!pc) return;
+    const slots = normalizeSlots(pc.spellSlots);
+    if (slots) pc.spellSlots = { ...slots, current: [...slots.max] };
+    // Long rest refills every custom pool too — mirror of state.ts.
+    if (pc.resources) pc.resources = pc.resources.map((r) => ({ ...r, current: r.max }));
+    save();
+  }
+
+  /** Mirror of state.ts adjustResource: one clamped authority for the count. */
+  function adjustResourceInner(pcId: string, resourceId: string, delta: number): void {
+    const pc = cur().pcs.find((x) => x.id === pcId);
+    const res = pc?.resources?.find((r) => r.id === resourceId);
+    if (!pc || !res) return;
+    const current = Math.max(0, Math.min(res.max, res.current + Math.trunc(delta)));
+    if (current === res.current) return;
+    res.current = current;
     save();
   }
 
@@ -757,12 +770,14 @@ export function createDemoApi(): Api {
       },
       {
         name: 'Bartholomew Quill', maxHp: 31, ac: 13, initMod: 2,
+        resources: [{ id: 'res-ar', name: 'Arcane Recovery', max: 1, current: 1 }],
         abilities: { str: 8, dex: 14, con: 12, int: 17, wis: 12, cha: 10 },
         notes: 'Human wizard 5 · Arcane Recovery · speed 30 ft',
         attacks: [],
       },
       {
         name: 'Seraphina Dawnbringer', maxHp: 45, ac: 17, initMod: 1,
+        resources: [{ id: 'res-cd', name: 'Channel Divinity', max: 2, current: 2 }],
         abilities: { str: 12, dex: 12, con: 14, int: 10, wis: 17, cha: 13 },
         notes: 'Human cleric 5 · Channel Divinity · speed 30 ft',
         attacks: [pcAttack('Sacred Flame', null, { ability: 'DEX', dc: 13 }, '1d8', 1, 8, 0, 4, 'radiant')],
@@ -1645,6 +1660,7 @@ export function createDemoApi(): Api {
             notes: ownPc.notes ?? '',
             attacks: ownPc.attacks,
             spellSlots: ownPc.spellSlots ?? null,
+            resources: ownPc.resources ?? [],
             combatantId: ownCombatant?.id ?? null,
           }
         : null,
@@ -2135,6 +2151,41 @@ export function createDemoApi(): Api {
       return;
     }
 
+    if (type === 'resourceAdjust') {
+      if (!pcId || typeof cmd.resourceId !== 'string' || typeof cmd.delta !== 'number') return;
+      adjustResourceInner(pcId, cmd.resourceId, cmd.delta);
+      return;
+    }
+
+    if (type === 'resourceSave') {
+      // Mirror of playerServer.ts: create or edit one pool, last write wins.
+      if (!pcId || typeof cmd.name !== 'string') return;
+      const pc = cur().pcs.find((x) => x.id === pcId);
+      if (!pc) return;
+      const name = cmd.name.trim().slice(0, 40);
+      const max = Math.max(1, Math.min(99, Math.trunc(Number(cmd.max) || 1)));
+      const list = [...(pc.resources ?? [])];
+      const i = list.findIndex((r) => r.id === cmd.resourceId);
+      if (i >= 0) {
+        list[i] = { ...list[i], name, max, current: Math.min(list[i].current, max) };
+      } else {
+        if (!name) return;
+        list.push({ id: uuid(), name, max, current: max });
+      }
+      pc.resources = list;
+      save();
+      return;
+    }
+
+    if (type === 'resourceDelete') {
+      if (!pcId || typeof cmd.resourceId !== 'string') return;
+      const pc = cur().pcs.find((x) => x.id === pcId);
+      if (!pc?.resources?.some((r) => r.id === cmd.resourceId)) return;
+      pc.resources = pc.resources.filter((r) => r.id !== cmd.resourceId);
+      save();
+      return;
+    }
+
     if (type === 'longRest') {
       // Never turn-gated, like saveAttack.
       if (pcId) longRestInner(pcId);
@@ -2442,6 +2493,8 @@ export function createDemoApi(): Api {
     castSpell: async (pcId, spellName, slotLevel, concentration) =>
       castSpellInner(pcId, spellName, slotLevel, DM_CTX, concentration ?? null),
     longRest: async (pcId) => longRestInner(pcId),
+    adjustResource: async (pcId, resourceId, delta) =>
+      adjustResourceInner(pcId, resourceId, delta),
 
     saveTemplate: async (t) => {
       const id = t.id ?? uuid();

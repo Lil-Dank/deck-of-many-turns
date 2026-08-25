@@ -1,4 +1,5 @@
 import type {
+  PcResource,
   AbilityScores,
   Condition,
   DamageInstance,
@@ -49,6 +50,8 @@ export interface WireYou {
   notes: string;
   attacks: MonsterAction[];
   spellSlots: SpellSlots | null;
+  /** Custom point pools (Ki, sorcery points, homebrew) — player-editable. */
+  resources: PcResource[];
   combatantId: string | null;
 }
 

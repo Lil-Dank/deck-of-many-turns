@@ -69,6 +69,9 @@ const api = {
   ): Promise<boolean> =>
     ipcRenderer.invoke('pc:castSpell', { pcId, spellName, slotLevel, concentration }),
   longRest: (pcId: string) => ipcRenderer.invoke('pc:longRest', pcId),
+  /** Spend/restore one custom resource, clamped app-side to [0, max]. */
+  adjustResource: (pcId: string, resourceId: string, delta: number): Promise<void> =>
+    ipcRenderer.invoke('pc:adjustResource', { pcId, resourceId, delta }),
   /** Set or clear a combatant's Concentration tag. */
   setConcentration: (
     combatantId: string,

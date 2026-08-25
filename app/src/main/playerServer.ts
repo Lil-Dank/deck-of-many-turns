@@ -330,6 +330,7 @@ function playerStateMessage(state: AppState, info: SocketInfo): string {
           notes: ownPc.notes ?? '',
           attacks: ownPc.attacks,
           spellSlots: ownPc.spellSlots ?? null,
+          resources: ownPc.resources ?? [],
           combatantId: ownCombatant?.id ?? null,
         }
       : null,
@@ -393,6 +394,11 @@ interface PlayerCommand {
   total?: number;
   /** throwRetry: the deferred log entry the player wants put back up. */
   entryId?: string;
+  /** resource commands */
+  resourceId?: string;
+  delta?: number;
+  name?: string;
+  max?: number;
 }
 
 /** The acting PC's live combatant, or null when it isn't in the fight. */
@@ -1176,6 +1182,45 @@ async function handleCommand(socket: WebSocket, cmd: PlayerCommand): Promise<voi
         amount: rolled.total,
         rolls: rolled.rolls,
         math: rolled.math,
+      });
+      return;
+    }
+
+    case 'resourceAdjust': {
+      // Spend or restore one of your own pools. Never turn-gated: marking a
+      // point spent is bookkeeping, not an action.
+      if (!info.pcId || typeof cmd.resourceId !== 'string' || typeof cmd.delta !== 'number') return;
+      await store.adjustResource(info.pcId, cmd.resourceId, Math.trunc(cmd.delta));
+      return;
+    }
+
+    case 'resourceSave': {
+      // Create or edit one pool (player-side editor). Both the DM's Party
+      // screen and the phone may edit; last write wins, like attacks.
+      if (!info.pcId || typeof cmd.name !== 'string') return;
+      const pc = store.getState().pcs.find((p) => p.id === info.pcId);
+      if (!pc) return;
+      const name = cmd.name.trim().slice(0, 40);
+      const max = Math.max(1, Math.min(99, Math.trunc(Number(cmd.max) || 1)));
+      const list = [...(pc.resources ?? [])];
+      const i = list.findIndex((r) => r.id === cmd.resourceId);
+      if (i >= 0) {
+        list[i] = { ...list[i], name, max, current: Math.min(list[i].current, max) };
+      } else {
+        if (!name) return;
+        list.push({ id: randomUUID(), name, max, current: max });
+      }
+      await store.savePc({ ...pc, resources: list });
+      return;
+    }
+
+    case 'resourceDelete': {
+      if (!info.pcId || typeof cmd.resourceId !== 'string') return;
+      const pc = store.getState().pcs.find((p) => p.id === info.pcId);
+      if (!pc?.resources?.some((r) => r.id === cmd.resourceId)) return;
+      await store.savePc({
+        ...pc,
+        resources: pc.resources.filter((r) => r.id !== cmd.resourceId),
       });
       return;
     }

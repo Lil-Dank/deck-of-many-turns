@@ -18,6 +18,8 @@ interface PcFormData {
   notes: string;
   /** Max spell slots per level 1–9, as typed. */
   slots: string[];
+  /** Custom pools (Ki, sorcery points, homebrew), as typed. */
+  resources: Array<{ id: string | null; name: string; max: string }>;
 }
 
 const emptyForm = (): PcFormData => ({
@@ -28,6 +30,7 @@ const emptyForm = (): PcFormData => ({
   abilities: abilitiesToForm(null),
   notes: '',
   slots: Array.from({ length: 9 }, () => ''),
+  resources: [],
 });
 
 export function PcScreen({ state }: { state: AppState }) {
@@ -48,6 +51,7 @@ export function PcScreen({ state }: { state: AppState }) {
         const v = pc.spellSlots?.max[i] ?? 0;
         return v > 0 ? String(v) : '';
       }),
+      resources: (pc.resources ?? []).map((r) => ({ id: r.id, name: r.name, max: String(r.max) })),
     });
 
   const submit = async () => {
@@ -67,6 +71,20 @@ export function PcScreen({ state }: { state: AppState }) {
       spellSlots: max.some((v) => v > 0)
         ? { max, current: existing?.spellSlots?.current ?? [...max] }
         : null,
+      // Current counts carry over on edit (clamped to a shrunken max); a new
+      // pool starts full.
+      resources: form.resources
+        .filter((r) => r.name.trim())
+        .map((r) => {
+          const rMax = Math.max(1, Math.min(99, parseInt(r.max, 10) || 1));
+          const prev = r.id ? existing?.resources?.find((x) => x.id === r.id) : undefined;
+          return {
+            id: r.id ?? crypto.randomUUID(),
+            name: r.name.trim().slice(0, 40),
+            max: rMax,
+            current: prev ? Math.min(prev.current, rMax) : rMax,
+          };
+        }),
     });
     setForm(null);
   };
@@ -135,6 +153,56 @@ export function PcScreen({ state }: { state: AppState }) {
         <div className="modal-backdrop" onClick={() => setForm(null)}>
           <div className="modal wide" onClick={(e) => e.stopPropagation()}>
             <h2>{t(form.id ? 'pcs.editPc' : 'pcs.addPc')}</h2>
+            <h3>
+              {t('pcs.resources')} <span className="muted">{t('pcs.resourcesNote')}</span>
+            </h3>
+            <div className="pc-res-editor">
+              {form.resources.map((r, i) => (
+                <div key={r.id ?? `new-${i}`} className="form-row pc-res-row">
+                  <input
+                    type="text"
+                    placeholder={t('common.name')}
+                    value={r.name}
+                    onChange={(e) => {
+                      const resources = [...form.resources];
+                      resources[i] = { ...r, name: e.target.value };
+                      setForm({ ...form, resources });
+                    }}
+                  />
+                  <input
+                    type="number"
+                    min={1}
+                    className="pc-res-max"
+                    value={r.max}
+                    onChange={(e) => {
+                      const resources = [...form.resources];
+                      resources[i] = { ...r, max: e.target.value };
+                      setForm({ ...form, resources });
+                    }}
+                  />
+                  <button
+                    className="btn small danger"
+                    onClick={() =>
+                      setForm({ ...form, resources: form.resources.filter((_, j) => j !== i) })
+                    }
+                  >
+                    ✕
+                  </button>
+                </div>
+              ))}
+              <button
+                className="btn small"
+                onClick={() =>
+                  setForm({
+                    ...form,
+                    resources: [...form.resources, { id: null, name: '', max: '1' }],
+                  })
+                }
+              >
+                + {t('pcs.addResource')}
+              </button>
+            </div>
+
             <label>
               {t('common.name')}
               <input
