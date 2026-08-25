@@ -7,6 +7,8 @@ to its GitHub release, where the installer and the packed plugin are attached.
 
 ## [Unreleased]
 
+## [3.6.0] — 2026-08-21
+
 ### Added
 
 - **A saving throw can be answered anywhere.** When one is owed — a
@@ -469,7 +471,8 @@ First packaged release.
   Picker profiles for MK.2 (5×3), XL (8×4) and 9×4 decks.
 - Four themes; local-only JSON storage.
 
-[Unreleased]: https://github.com/Lil-Dank/deck-of-many-turns/compare/v3.5.1...HEAD
+[Unreleased]: https://github.com/Lil-Dank/deck-of-many-turns/compare/v3.6.0...HEAD
+[3.6.0]: https://github.com/Lil-Dank/deck-of-many-turns/releases/tag/v3.6.0
 [3.5.1]: https://github.com/Lil-Dank/deck-of-many-turns/releases/tag/v3.5.1
 [3.5.0]: https://github.com/Lil-Dank/deck-of-many-turns/releases/tag/v3.5.0
 [3.4.0]: https://github.com/Lil-Dank/deck-of-many-turns/releases/tag/v3.4.0
