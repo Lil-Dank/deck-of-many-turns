@@ -1447,8 +1447,18 @@ export function createDemoApi(): Api {
     for (const cb of saveReqClosedListeners) cb(requestId);
     const combat = cur().combat;
     if (!combat) return;
-    for (const t of owed) fileDeferredCard(req, t, requestId);
+    for (const t of owed) {
+      // Mirror of saveRequests.ts: never a second card for the same throw.
+      if (!hasDeferredCard(requestId, t.combatantId)) fileDeferredCard(req, t, requestId);
+    }
     save();
+  }
+
+  function hasDeferredCard(requestId: string, combatantId: string): boolean {
+    const log = cur().combat?.log ?? [];
+    return log.some(
+      (e) => e.kind === 'saveDeferred' && e.requestId === requestId && e.combatantId === combatantId,
+    );
   }
 
   function fileDeferredCard(
@@ -1484,7 +1494,7 @@ export function createDemoApi(): Api {
     if (!target) return;
     target.awaiting = null;
     cancelPhonePrompt(requestId, combatantId);
-    fileDeferredCard(req, target, requestId);
+    if (!hasDeferredCard(requestId, combatantId)) fileDeferredCard(req, target, requestId);
     save();
     if (req.pickedUpBy === 'phone') {
       saveRequests.delete(requestId);
