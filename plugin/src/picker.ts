@@ -537,6 +537,7 @@ class Picker {
     this.op = null;
     this.actorId = null;
     this.advMode = 'normal';
+    this.savePrompt = null;
     if (deviceId) {
       // Switching without a profile returns to the previously active profile.
       await streamDeck.profiles.switchToProfile(deviceId);
@@ -1339,6 +1340,9 @@ class Picker {
    */
   private async pressSaveMode(slot: number, _action: KeyAction): Promise<void> {
     if (slot === 0) {
+      // An app-pushed prompt has no roll screen behind it: Back declines,
+      // leaving the throw with the DM window and the phones.
+      if (this.savePrompt) return this.exit();
       this.mode = 'attackRoll';
       this.lastRoll = `DMG ${this.pendingDamage}`;
       return this.render();
@@ -1392,6 +1396,8 @@ class Picker {
 
   private async pressSaveResult(slot: number, _action: KeyAction): Promise<void> {
     if (slot === 0) {
+      // Back on an app-pushed prompt declines it — no roll screen behind it.
+      if (this.savePrompt) return this.exit();
       // Back: abandon a pending apply and return to the roll screen.
       this.clearPendingApply();
       this.mode = 'attackRoll';
