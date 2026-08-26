@@ -20,7 +20,7 @@ import {
   rollMathSegments,
 } from '../shared/logText';
 import type { LogEntry, MonsterAction, SpellSlots } from '../shared/types';
-import { ABILITY_KEYS, abilityMod, type PcResource } from '../shared/types';
+import { ABILITY_KEYS, abilityMod, type AbilityScores, type PcResource } from '../shared/types';
 import { formToAction, actionToForm, emptyAction, ABILITIES, type ActionForm } from '../renderer/src/actionForm';
 import { spellToAction, spellActionName, spellActionText } from '../shared/spellAction';
 import type {
@@ -240,6 +240,7 @@ export function App() {
                   lang={lang}
                   send={send}
                   onSpellbook={() => setView({ id: 'spellbook' })}
+                  onMyAttacks={() => setView({ id: 'myAttacks' })}
                   onActions={() => setView({ id: 'more' })}
                 />
               )}
@@ -835,19 +836,7 @@ function YouStrip({
     <>
       {open && (
         <div className="you-sheet">
-          {you.abilities && (
-            <div className="you-stats card-abilities">
-              {ABILITY_KEYS.map((k) => {
-                const score = you.abilities![k];
-                const mod = abilityMod(score);
-                return (
-                  <span key={k} className="you-stat tnum">
-                    <b>{abilityLabels(lang)[k]}</b> {score} ({fmt(mod)})
-                  </span>
-                );
-              })}
-            </div>
-          )}
+          {you.abilities && <AbilityTiles abilities={you.abilities} lang={lang} />}
           {you.notes && <div className="you-notes card-notes">{you.notes}</div>}
           <PhoneSlotPips slots={you.spellSlots} />
           <ResourceRows resources={you.resources} send={send} />
@@ -882,6 +871,26 @@ function YouStrip({
   );
 }
 
+/** The six abilities as tiles: the modifier is what you roll with, so it is
+ * the big number; the raw score rides underneath. */
+function AbilityTiles({ abilities, lang }: { abilities: AbilityScores; lang: Lang }) {
+  return (
+    <div className="ability-tiles">
+      {ABILITY_KEYS.map((k) => {
+        const score = abilities[k];
+        const mod = abilityMod(score);
+        return (
+          <div key={k} className="ability-tile">
+            <span className="at-label">{abilityLabels(lang)[k]}</span>
+            <span className="at-mod tnum">{mod >= 0 ? `+${mod}` : mod}</span>
+            <span className="at-score tnum">{score}</span>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 // ---- character card (home, no combat) ---------------------------------------
 
 function PhoneSlotPips({ slots }: { slots: SpellSlots | null }) {
@@ -912,6 +921,7 @@ function CharacterCard({
   lang,
   send,
   onSpellbook,
+  onMyAttacks,
   onActions,
 }: {
   state: StateMsg;
@@ -919,6 +929,7 @@ function CharacterCard({
   lang: Lang;
   send: (msg: Record<string, unknown>) => void;
   onSpellbook: () => void;
+  onMyAttacks: () => void;
   onActions: () => void;
 }) {
   const you = state.you!;
@@ -943,19 +954,7 @@ function CharacterCard({
           <b>{t('common.initMod')}</b> {you.initMod >= 0 ? `+${you.initMod}` : you.initMod}
         </span>
       </div>
-      {you.abilities && (
-        <div className="you-stats card-abilities">
-          {ABILITY_KEYS.map((k) => {
-            const score = you.abilities![k];
-            const mod = abilityMod(score);
-            return (
-              <span key={k} className="you-stat tnum">
-                <b>{abilityLabels(lang)[k]}</b> {score} ({mod >= 0 ? `+${mod}` : mod})
-              </span>
-            );
-          })}
-        </div>
-      )}
+      {you.abilities && <AbilityTiles abilities={you.abilities} lang={lang} />}
       {you.notes && <div className="you-notes card-notes">{you.notes}</div>}
       <PhoneSlotPips slots={you.spellSlots} />
       <ResourceRows resources={you.resources} send={send} />
@@ -963,6 +962,10 @@ function CharacterCard({
         <button className="big primary" onClick={onSpellbook}>
           <Icon name="book" size={18} />
           {t('spellbook.title')}
+        </button>
+        <button className="big" onClick={onMyAttacks}>
+          <Icon name="swords" size={18} />
+          {t('mob.myAttacks')}
         </button>
         <button className="big" onClick={onActions}>
           {t('mob.more')}
@@ -1426,6 +1429,7 @@ function AttackFlow({
             kept={atkRoll?.die}
             size={dice.length > 6 ? 44 : dice.length > 1 ? 76 : 96}
             settled
+            sizes={atkRoll ? undefined : dmgDiceSizes}
           />
         </div>
       </Sheet>
@@ -1438,7 +1442,11 @@ function AttackFlow({
       <Sheet title={(attack ? spellActionName(state.language, attack) : t('mob.attack'))} onClose={onClose} t={t}>
         <div className="result">
           {healResult.rolls && healResult.rolls.length > 0 && (
-            <DiceValues dice={healResult.rolls} size={healResult.rolls.length > 6 ? 44 : 58} />
+            <DiceValues
+              dice={healResult.rolls}
+              size={healResult.rolls.length > 6 ? 44 : 58}
+              sizes={dmgDiceSizes}
+            />
           )}
           <div className="verdict heal">✚ {healResult.amount}</div>
           {healResult.math && (
@@ -1474,7 +1482,12 @@ function AttackFlow({
           )}
           {phase === 'dmgSettled' && dmgResult && (
             <div className="rolling inline">
-              <DiceValues dice={dmgResult.rolls} size={dmgResult.rolls.length > 6 ? 44 : 58} settled />
+              <DiceValues
+                dice={dmgResult.rolls}
+                size={dmgResult.rolls.length > 6 ? 44 : 58}
+                settled
+                sizes={dmgDiceSizes}
+              />
             </div>
           )}
           {phase === 'verdict' && dmgResult && (
@@ -1527,6 +1540,7 @@ function AttackFlow({
               <DiceValues
                 dice={savePending.rolls}
                 size={savePending.rolls.length > 6 ? 44 : 58}
+                sizes={dmgDiceSizes}
               />
             )}
             {savePending?.math && (
@@ -2177,28 +2191,59 @@ function LogPeek({
  * The suspense dice: a tumbling die cycling random faces, decelerating
  * toward the end of the ~3.5 s hold before the real result shows.
  */
-/** Flat polyhedral die (d20 silhouette) with the number on its face. */
+/**
+ * The 2-D silhouette of each polyhedral die, in one line-art style: outline,
+ * an optional front face, and the facet edges. d100 shares the d10 kite —
+ * the percentile die is the same solid.
+ */
+const DIE_SHAPES: Record<
+  number,
+  { outline: string; face?: string; lines: Array<[number, number, number, number]> }
+> = {
+  4: { outline: '50,8 94,88 6,88', lines: [[50, 8, 50, 58], [94, 88, 50, 58], [6, 88, 50, 58]] },
+  6: { outline: '14,14 86,14 86,86 14,86', lines: [] },
+  8: { outline: '50,3 95,50 50,97 5,50', lines: [[5, 50, 95, 50]] },
+  10: {
+    outline: '50,3 90,42 50,97 10,42',
+    lines: [[10, 42, 50, 64], [90, 42, 50, 64], [50, 64, 50, 97]],
+  },
+  12: {
+    outline: '50,4 95,37 78,93 22,93 5,37',
+    face: '50,24 76,43 66,73 34,73 24,43',
+    lines: [[50, 4, 50, 24], [95, 37, 76, 43], [78, 93, 66, 73], [22, 93, 34, 73], [5, 37, 24, 43]],
+  },
+  20: {
+    outline: '50,2 92,26 92,74 50,98 8,74 8,26',
+    face: '50,22 78,66 22,66',
+    lines: [
+      [50, 2, 50, 22], [92, 26, 78, 66], [8, 26, 22, 66],
+      [92, 74, 78, 66], [8, 74, 22, 66], [50, 98, 78, 66], [50, 98, 22, 66],
+    ],
+  },
+};
+
+/** Flat polyhedral die with the number on its face — shaped to match `faces`. */
 function DieGlyph({
   value,
   size,
+  faces = 20,
   className = '',
 }: {
   value: number | string;
   size: number;
+  /** Which die this is (4/6/8/10/12/20/100); picks the silhouette. */
+  faces?: number;
   className?: string;
 }) {
+  const shape = DIE_SHAPES[faces === 100 ? 10 : faces] ?? DIE_SHAPES[20];
   return (
     <div className={`die-glyph ${className}`} style={{ width: size, height: size }}>
       <svg viewBox="0 0 100 100" aria-hidden="true">
-        <polygon points="50,2 92,26 92,74 50,98 8,74 8,26" className="die-outline" />
-        <polygon points="50,22 78,66 22,66" className="die-face" />
-        <line x1="50" y1="2" x2="50" y2="22" />
-        <line x1="92" y1="26" x2="78" y2="66" />
-        <line x1="8" y1="26" x2="22" y2="66" />
-        <line x1="92" y1="74" x2="78" y2="66" />
-        <line x1="8" y1="74" x2="22" y2="66" />
-        <line x1="50" y1="98" x2="78" y2="66" />
-        <line x1="50" y1="98" x2="22" y2="66" />
+        <polygon points={shape.outline} className="die-outline" />
+        {shape.face && <polygon points={shape.face} className="die-face" />}
+        {shape.lines.map(([x1, y1, x2, y2], i) => (
+          <line key={i} x1={x1} y1={y1} x2={x2} y2={y2} />
+        ))}
       </svg>
       <span className="die-glyph-num tnum" style={{ fontSize: Math.round(size * 0.34) }}>
         {value}
@@ -2213,16 +2258,20 @@ function DiceValues({
   kept,
   size,
   settled,
+  sizes,
 }: {
   dice: number[];
   kept?: number;
   size: number;
   settled?: boolean;
+  /** Die faces per entry (aligned with `dice`); absent = d20s. */
+  sizes?: number[];
 }) {
   let keptShown = false;
   return (
     <div className="die-row">
       {dice.map((d, i) => {
+        const faces = sizes?.[i] ?? 20;
         let cls = 'kept';
         if (kept !== undefined && dice.length > 1) {
           if (d === kept && !keptShown) {
@@ -2232,7 +2281,7 @@ function DiceValues({
           }
         }
         return (
-          <DieGlyph key={i} value={d} size={size} className={`${cls} ${settled ? 'settle-pop' : ''}`} />
+          <DieGlyph key={i} value={d} size={size} faces={faces} className={`${cls} ${settled ? 'settle-pop' : ''}`} />
         );
       })}
     </div>
@@ -2267,7 +2316,7 @@ function RollingDice({ label, sizes, inline }: { label: string; sizes: number[];
     <div className={`rolling ${inline ? 'inline' : ''}`}>
       <div className="die-row">
         {faces.map((f, i) => (
-          <DieGlyph key={i} value={f} size={size} className="tumbling" />
+          <DieGlyph key={i} value={f} size={size} faces={sizes[i]} className="tumbling" />
         ))}
       </div>
       <p className="muted">{label}</p>

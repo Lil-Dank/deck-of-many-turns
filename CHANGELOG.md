@@ -7,6 +7,20 @@ to its GitHub release, where the installer and the packed plugin are attached.
 
 ## [Unreleased]
 
+### Added
+
+- **Every polyhedral die has its own glyph.** d4 triangle, d6 square, d8
+  diamond, d10/d100 kite, d12 pentagon, d20 icosahedron face — and a digital
+  roll tumbles the shape actually being thrown, settled dice included.
+- The idle character card gains a My Attacks button, and its ability block is
+  a proper two-row table: the modifier big on top, the raw score beneath.
+
+### Fixed
+
+- Sheets (spellbook, resources, log…) sit above everything and carry their own
+  under-bleed, so the home screen's gap filler can never block another view and
+  mobile URL-bar animations can't expose page content under a sheet either.
+
 ## [3.7.0] — 2026-08-26
 
 ### Added
