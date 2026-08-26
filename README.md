@@ -462,7 +462,7 @@ accounts.
 
 ![Two polyhedral dice tumbling with cycling numbers — an advantage attack roll in the air](docs/images/phone-roll.gif)
 
-<i>Digital rolls tumble before they land — advantage throws two dice and keeps the better one.</i>
+<i>Digital rolls tumble before they land.</i>
 
 </div>
 
