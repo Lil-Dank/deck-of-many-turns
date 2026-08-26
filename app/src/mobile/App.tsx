@@ -405,12 +405,15 @@ export function App() {
           )}
 
           {view.id === 'archive' && (
-            <Sheet title={t('mob.archive')} onClose={() => setView({ id: 'more' })} t={t}>
+            <Sheet
+              title={t('mob.archive')}
+              // One level at a time: with an entry open, Back returns to the
+              // archive list; only the list's own Back leaves for More.
+              onClose={() => (archiveEntry ? setArchiveEntry(null) : setView({ id: 'more' }))}
+              t={t}
+            >
               {archiveEntry ? (
                 <>
-                  <button className="sheet-back" onClick={() => setArchiveEntry(null)}>
-                    {t('common.back')}
-                  </button>
                   <h3>
                     {archiveEntry.templateName}{' '}
                     <span className="muted">

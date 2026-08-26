@@ -857,7 +857,15 @@ h3 {
 
 .sheet {
   position: fixed;
-  inset: 0;
+  top: 0;
+  left: 0;
+  right: 0;
+  /* dvh, not inset-to-bottom: mobile browsers size a fixed inset-0 element to
+     the SMALL viewport once their chrome hides, cutting the sheet short and
+     leaving a dead band under it. The dynamic viewport unit tracks the chrome,
+     so the body's scroll area always reaches the true bottom — which is also
+     why sheets carry no under-bleed: there is nothing left to cover. */
+  height: 100dvh;
   background: var(--bg);
   /* Above the sticky header (25) and the dock (20): a sheet owns the screen. */
   z-index: 26;
@@ -865,20 +873,6 @@ h3 {
   flex-direction: column;
   max-width: 560px;
   margin: 0 auto;
-}
-
-/* Same URL-bar insurance as the dock, but per sheet: whatever the browser
-   exposes below a misplaced fixed sheet is sheet-coloured, never the page —
-   and the dock's own bleed exists only on the home screen, where the dock is
-   mounted, so it cannot sit over any other view. */
-.sheet::after {
-  content: '';
-  position: absolute;
-  top: 100%;
-  left: 0;
-  right: 0;
-  height: 40vh;
-  background: var(--bg);
 }
 
 .sheet-header h2 {
