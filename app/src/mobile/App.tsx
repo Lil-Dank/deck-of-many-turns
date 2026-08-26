@@ -378,8 +378,6 @@ export function App() {
               t={t}
               send={send}
               spellList={spellList}
-              onArchive={() => setView({ id: 'archive' })}
-              onSpellbook={() => setView({ id: 'spellbook' })}
               onClose={() => setView({ id: 'more' })}
             />
           )}
@@ -1883,16 +1881,12 @@ function MyAttacks({
   t,
   send,
   spellList,
-  onArchive,
-  onSpellbook,
   onClose,
 }: {
   state: StateMsg;
   t: (k: string, p?: Record<string, string | number>) => string;
   send: (msg: Record<string, unknown>) => void;
   spellList: WireSpell[] | null;
-  onArchive: () => void;
-  onSpellbook: () => void;
   onClose: () => void;
 }) {
   const you = state.you!;
@@ -2063,18 +2057,6 @@ function MyAttacks({
           >
             {t('pcs.fromSpellbook')}
           </button>
-          {/* Navigation, not actions: real buttons, but in the lighter
-              outline style so they read apart from the editor buttons. */}
-          <div className="sheet-nav-row">
-            <button className="big ghost" onClick={onSpellbook}>
-              <Icon name="book" size={18} />
-              {t('spellbook.title')}
-            </button>
-            <button className="big ghost" onClick={onArchive}>
-              <Icon name="archive" size={18} />
-              {t('mob.archive')}
-            </button>
-          </div>
         </>
       )}
 

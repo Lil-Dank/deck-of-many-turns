@@ -7,6 +7,8 @@ to its GitHub release, where the installer and the packed plugin are attached.
 
 ## [Unreleased]
 
+## [3.8.0] — 2026-08-26
+
 ### Added
 
 - **Every polyhedral die has its own glyph.** d4 triangle, d6 square, d8
@@ -14,6 +16,11 @@ to its GitHub release, where the installer and the packed plugin are attached.
   roll tumbles the shape actually being thrown, settled dice included.
 - The idle character card gains a My Attacks button, and its ability block is
   a proper two-row table: the modifier big on top, the raw score beneath.
+
+### Changed
+
+- My Attacks drops its Spellbook and Past-combats shortcuts — the More menu is
+  the one way to those screens now.
 
 ### Fixed
 
@@ -513,7 +520,8 @@ First packaged release.
   Picker profiles for MK.2 (5×3), XL (8×4) and 9×4 decks.
 - Four themes; local-only JSON storage.
 
-[Unreleased]: https://github.com/Lil-Dank/deck-of-many-turns/compare/v3.7.0...HEAD
+[Unreleased]: https://github.com/Lil-Dank/deck-of-many-turns/compare/v3.8.0...HEAD
+[3.8.0]: https://github.com/Lil-Dank/deck-of-many-turns/releases/tag/v3.8.0
 [3.7.0]: https://github.com/Lil-Dank/deck-of-many-turns/releases/tag/v3.7.0
 [3.6.0]: https://github.com/Lil-Dank/deck-of-many-turns/releases/tag/v3.6.0
 [3.5.1]: https://github.com/Lil-Dank/deck-of-many-turns/releases/tag/v3.5.1
