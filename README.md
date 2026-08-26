@@ -529,6 +529,9 @@ Those first three keys draw themselves as images rather than using plain titles,
 the name renders at the largest size that still fits inside a margin — shrinking only
 as the name needs more lines — with a heavy outline for readability at a glance.
 
+<details>
+<summary><b>Button Logic Flows</b></summary>
+
 #### Damage / Heal flow
 
 ```mermaid
@@ -580,6 +583,8 @@ flowchart LR
     S -->|"⚔ Damage / ✚ Heal"| A["🟣 Actor select → Apply"]
     A --> X["Back to your profile"]
 ```
+
+</details>
 
 Rolling works even without the app connected; applying needs it. The same roller lives
 in the DM window's sidebar (**🎲 Dice Roller**) with add/remove dice rows, a per-part
