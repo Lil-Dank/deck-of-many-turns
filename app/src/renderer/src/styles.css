@@ -2060,7 +2060,7 @@ select.campaign-select {
 
 .log-panel {
   position: relative; /* anchors the jump-to-present pill */
-  width: 280px;
+  width: 320px;
   flex-shrink: 0;
   display: flex;
   flex-direction: column;
