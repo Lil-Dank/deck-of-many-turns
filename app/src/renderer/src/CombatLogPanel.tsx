@@ -8,6 +8,11 @@ import { monsterName } from '../../shared/i18n';
 
 const COLLAPSE_KEY = 'dct-log-collapsed';
 
+/* Below this the initiative columns and the open log can't share the width
+   comfortably, so the log yields. Keep in sync with the styles.css media
+   query of the same width. */
+const NARROW_QUERY = '(max-width: 1280px)';
+
 /**
  * The Combat screen's right-hand log sidebar. Always recording, costs nothing
  * when unwanted: the full-width button at the bottom collapses it to a slim
@@ -19,7 +24,7 @@ export function CombatLogPanel({ log, combatants }: { log: LogEntry[]; combatant
   const { t, lang } = useI18n();
   const confirm = useConfirm();
   const [collapsed, setCollapsed] = useState(
-    () => localStorage.getItem(COLLAPSE_KEY) === '1',
+    () => localStorage.getItem(COLLAPSE_KEY) === '1' || window.matchMedia(NARROW_QUERY).matches,
   );
   const [editing, setEditing] = useState(false);
   /** Whether the view is reading the present (the newest entries). */
@@ -31,6 +36,20 @@ export function CombatLogPanel({ log, combatants }: { log: LogEntry[]; combatant
   // A little slack, so a card's own padding doesn't count as "scrolled up".
   const nearBottom = (el: HTMLElement) =>
     el.scrollHeight - el.scrollTop - el.clientHeight < 48;
+
+  // Follow the window across the narrow threshold: squeeze in by collapsing
+  // (without recording it as a choice), widen back out to the stored
+  // preference. The manual toggle is the only writer of that preference.
+  useEffect(() => {
+    const mq = window.matchMedia(NARROW_QUERY);
+    const apply = (matches: boolean) => {
+      if (matches) setCollapsed(true);
+      else setCollapsed(localStorage.getItem(COLLAPSE_KEY) === '1');
+    };
+    const onChange = (e: MediaQueryListEvent) => apply(e.matches);
+    mq.addEventListener('change', onChange);
+    return () => mq.removeEventListener('change', onChange);
+  }, []);
 
   // Entering the screen (or expanding the panel) starts at the present, not
   // round one: the newest entry is what a running fight is about.

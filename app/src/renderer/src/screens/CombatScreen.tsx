@@ -366,6 +366,19 @@ function ActivePhase({ state, onOpenDice }: { state: AppState; onOpenDice: () =>
                 }}
               >
                 <span className="init-badge tnum">{c.initiative}</span>
+                {/* Read cluster: init, HP and AC sit together on the left in
+                    fixed columns, so every number lines up down the list and
+                    the eye never hunts past controls to find a stat. */}
+                <span
+                  className={`hp tnum ${c.currentHp <= c.maxHp / 2 ? 'low' : ''}`}
+                  title={bloodied ? t('pv.bloodied') : undefined}
+                >
+                  {c.currentHp}
+                  <span className="hp-max">/{c.maxHp}</span>
+                </span>
+                <span className="ac-badge tnum" title={t('combat.armorClass')}>
+                  <span className="ac-label">{t('common.ac')}</span> {c.ac}
+                </span>
                 <span className="actor-cell">
                   <span className="name-line">
                     <span className="combat-name">
@@ -402,19 +415,6 @@ function ActivePhase({ state, onOpenDice }: { state: AppState; onOpenDice: () =>
                       )}
                     </span>
                   )}
-                </span>
-                {/* Fixed columns: HP and AC sit right beside the name so the
-                    eye lands on name → numbers without hunting; every row
-                    shares the same grid, so nothing ever shifts. */}
-                <span
-                  className={`hp tnum ${c.currentHp <= c.maxHp / 2 ? 'low' : ''}`}
-                  title={bloodied ? t('pv.bloodied') : undefined}
-                >
-                  {bloodied && <span className="blood-drop">🩸</span>}
-                  {c.currentHp}/{c.maxHp}
-                </span>
-                <span className="ac-badge tnum" title={t('combat.armorClass')}>
-                  <span className="ac-label">{t('common.ac')}</span> {c.ac}
                 </span>
                 <input
                   type="number"

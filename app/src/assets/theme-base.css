@@ -20,7 +20,13 @@
   --border-soft: color-mix(in oklab, var(--brand-text) 12%, transparent);
   --row-hover:   color-mix(in oklab, var(--brand-text) 6%, transparent);
   --text:        var(--brand-text);
-  --text-muted:  var(--brand-text-muted);
+  /* Muted ink is pulled a fifth of the way back toward the body colour: the
+     raw seed reads fine at 14px but fails at the 11-13px sizes it actually
+     gets used at. Palettes that pin --text-muted still win over this. */
+  --text-muted:  color-mix(in oklab, var(--brand-text-muted) 80%, var(--brand-text));
+  /* Dimmer than muted, for glyph-only ornaments (spell-slot pips) that sit
+     beside real text and must not compete with it. */
+  --text-dim:    color-mix(in oklab, var(--text-muted) 75%, var(--bg));
   --accent:      var(--brand-accent);
   --accent-dim:  color-mix(in oklab, var(--brand-accent) 76%, var(--brand-ground));
 
@@ -48,6 +54,17 @@
   --badge-text:   color-mix(in oklab, var(--brand-accent) 45%, var(--brand-text));
 
   --font-ui: 'Inter', 'Segoe UI', system-ui, sans-serif;
+
+  /* Type scale. Five sizes cover the UI; anything smaller than 12px is a
+     label, not text, and nothing goes below 11px anywhere. --lh-text is for
+     sentences; --lh-num keeps big standalone numbers from towing whitespace. */
+  --fs-12: 12px;
+  --fs-13: 13px;
+  --fs-14: 14px;
+  --fs-16: 16px;
+  --fs-18: 18px;
+  --lh-text: 1.45;
+  --lh-num: 1.2;
 
   /* Phone aliases, declared once here so mobile/styles.css keeps its own
      variable names without every palette having to repeat them. */

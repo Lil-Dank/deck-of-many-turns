@@ -189,7 +189,9 @@ export const PALETTES: BrandPalette[] = [
       '--bg-panel-2': '#e9dbbd',
       '--row-hover': 'rgba(201, 173, 106, 0.18)',
       '--text': '#23180f',
-      '--text-muted': '#6f5b3e',
+      // Darker than the seed: the seed passed at 14px but this pin is what
+      // 11-13px labels render in, and on parchment it needs the extra step.
+      '--text-muted': '#5e4a30',
       '--accent': '#58180d',
       '--accent-dim': '#722f1e',
       '--danger': '#9c2b1b',
